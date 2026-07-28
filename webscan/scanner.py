@@ -164,12 +164,18 @@ def run_scan(config: ScanConfig) -> ScanResult:
         checks_done += result.tests_executed
         active_tests = result.tests_executed
         targets_tested = result.targets_tested
-        checks_list.append((
-            "Отражённый XSS (маркер BAUMAN_TEST_92841), в том числе внутри <script>; "
-            "инъекции в SQL и NoSQL (', \", \\); открытый редирект; инъекция в шаблон; "
-            "чтение файлов сервера; выполнение команд ОС; разделение заголовков (CRLF)",
-            f"{result.targets_tested} точек внедрения, {result.tests_executed} запросов",
-        ))
+        active_scope = (f"{result.targets_tested} точек внедрения, "
+                        f"{result.tests_executed} запросов")
+        for check_name in (
+            "Отражённый XSS (маркер BAUMAN_TEST_92841), в том числе внутри <script>",
+            "Инъекции в SQL и NoSQL (', \", \\)",
+            "Открытый редирект",
+            "Инъекция в шаблон",
+            "Чтение файлов сервера",
+            "Выполнение команд ОС",
+            "Разделение заголовков (CRLF)",
+        ):
+            checks_list.append((check_name, active_scope))
         if result.skipped_forms:
             notes.append(f"Активно не тестировались {result.skipped_forms} форм(а): они выглядят "
                          "изменяющими состояние (регистрация, оплата, удаление и т. п.). "

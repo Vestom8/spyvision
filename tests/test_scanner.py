@@ -21,8 +21,8 @@ from webscan.checks.cookies import check_cookies
 from webscan.checks.headers import check_headers
 from webscan.checks.infoleak import check_info_leak
 from webscan.http_client import MAX_BODY_BYTES, MAX_TIMEOUT, MIN_DELAY, HttpClient
-from webscan.models import (CONFIG, HIGH, INFO, LOW, MEDIUM, CookieInfo, Finding, FindingList,
-                            Page, VULN)
+from webscan.models import (CONFIG, CONFIRMED, HIGH, INFO, LOW, MEDIUM, CookieInfo, Finding,
+                            FindingList, Page, VULN)
 from webscan.knowledge import KNOWLEDGE
 from webscan.report import build_report
 from webscan.scanner import ScanConfig, run_scan
@@ -374,9 +374,9 @@ class TestReport(unittest.TestCase):
     def test_statistics_block_is_detailed(self):
         findings = FindingList()
         findings.add(Finding(url="https://a.test/", title="t", category=VULN, severity=HIGH,
-                             recommendation="r"))
+                             recommendation="r", confidence=CONFIRMED))
         html = build_report(findings, {"target": "https://a.test/", "pages": 3, "checks": 40,
-                                       "requests_made": 60, "max_requests": 200, "max_pages": 40,
+                                       "requests_made": 60, "max_requests": 400, "max_pages": 40,
                                        "max_depth": 2, "duration": 5.0, "page_list": [],
                                        "forms": 2, "url_params": 4, "active_tests": 12,
                                        "targets_tested": 3, "error_count": 1,
@@ -384,15 +384,54 @@ class TestReport(unittest.TestCase):
                                        "insecure_requests": 0})
         for label in ("Что просканировано", "Что найдено", "Как выполнялось сканирование",
                       "Страниц проверено", "Форм на страницах", "Параметров в адресах",
-                      "Требуют внимания", "Запросов к сайту", "Активных тестов"):
+                      "Требуют внимания", "Подтверждённые угрозы высокого уровня",
+                      "Запросов к сайту", "Активных тестов"):
             self.assertIn(label, html)
+        for removed in ("Ссылок на чужие сайты", "Глубина обхода",
+                        "Запросов без проверки сертификата", "Требуют ручной проверки"):
+            self.assertNotIn(removed, html)
+        # «Подтверждено» как отдельная карточка статистики не показывается
+        self.assertNotIn("Подтверждено</div>", html)
+        self.assertNotIn(">Подтверждено<", html.split("id=\"pdf-report\"")[0])
+
+    def test_side_drawer_and_pdf_export(self):
+        findings = FindingList()
+        findings.add(Finding(url="https://a.test/", title="Секрет в коде", category=VULN,
+                             severity=HIGH, recommendation="сменить ключ", confidence=CONFIRMED))
+        findings.add(Finding(url="https://a.test/", title="Нет CSP", category=CONFIG,
+                             severity=MEDIUM, recommendation="добавить CSP"))
+        html = build_report(findings, {"target": "https://a.test/", "pages": 1, "checks": 5,
+                                       "requests_made": 5, "max_requests": 400, "max_pages": 40,
+                                       "max_depth": 2, "duration": 1.0,
+                                       "page_list": [{"url": "https://a.test/", "status": 200,
+                                                      "depth": 0, "content_type": "text/html",
+                                                      "size": 100}],
+                                       "checks_list": [("Отражённый XSS", "1 точка")],
+                                       "errors": [("https://a.test/x", "timeout")]})
+        self.assertIn('id="drawer"', html)
+        self.assertIn("Разделы отчёта", html)
+        self.assertIn("Скачать PDF", html)
+        self.assertIn('id="pdf-report"', html)
+        pdf = html.split('id="pdf-report"', 1)[1]
+        self.assertIn("самые опасные", pdf)
+        self.assertIn("Секрет в коде", pdf)  # High
+        self.assertNotIn("Нет CSP", pdf)  # Medium не попадает в PDF
+        for section in ("Найденные проблемы", "Как читать отчёт",
+                        "Просканированные страницы", "Какие проверки выполнялись",
+                        "Запросы, оставшиеся без ответа"):
+            self.assertIn(section, html)
+        # подтверждённый High выделен красным
+        self.assertIn('class="f-row critical"', html)
+        self.assertIn("Подтверждённые угрозы высокого уровня", html)
+        # градиент на всю страницу, а не только в шапке
+        self.assertIn("linear-gradient(135deg, #FFFFFF 0%, var(--mint) 100%) fixed", html)
 
     def test_report_explains_threat_and_logic(self):
         findings = FindingList()
         findings.add(Finding(url="https://a.test/", title="Отсутствует CSP", category=CONFIG,
                              severity=MEDIUM, recommendation="r", kind="csp_missing"))
         html = build_report(findings, {"target": "https://a.test/", "pages": 1, "checks": 1,
-                                       "requests_made": 1, "max_requests": 100, "max_pages": 20,
+                                       "requests_made": 1, "max_requests": 400, "max_pages": 40,
                                        "max_depth": 2, "duration": 1.0, "page_list": []})
         self.assertIn("Чем это опасно", html)
         self.assertIn("Почему сканер так решил", html)

@@ -1,15 +1,18 @@
 """Формирование HTML-отчёта (раздел 6 требований).
 
 Оформление: светло-серые и зелёные оттенки, тематика пауков и паутины.
-В шапке — кольцевая диаграмма распределения находок по уровням критичности
-(уровни кликабельны: нажатие фильтрует таблицу «Найденные проблемы») и блок
-«Общая статистика» из трёх групп показателей.
+На главном экране — кольцевая диаграмма распределения находок по уровням
+критичности (уровни кликабельны) и блок «Общая статистика». Подробные разделы
+(как читать отчёт, найденные проблемы, просканированные страницы, список
+проверок, запросы без ответа) вынесены в боковую выпадающую панель, чтобы
+главный экран помещался без прокрутки. Кнопка «Скачать PDF» открывает печать
+краткой сводки — браузер сохраняет её в PDF.
 """
 
 import datetime
 import html
 import math
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .models import (CONFIG, CONFIRMED, HIGH, INFO, LOW, MEDIUM, SUSPECTED, VULN, Finding,
                      FindingList)
@@ -54,18 +57,16 @@ CSS = """
 }
 * { box-sizing: border-box; }
 body {
-  margin: 0; padding: 0 0 56px; background: var(--bg); color: var(--text);
+  margin: 0; padding: 0 0 28px; color: var(--text); min-height: 100vh;
+  background: linear-gradient(135deg, #FFFFFF 0%, var(--mint) 100%) fixed;
   font: 15px/1.6 "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+body.locked { overflow: hidden; }
 .wrap { max-width: 1280px; margin: 0 auto; padding: 0 22px; }
 a { color: var(--green); }
 
 /* ---------- шапка с диаграммой ---------- */
-header {
-  position: relative; overflow: hidden;
-  background: linear-gradient(135deg, #FFFFFF 0%, var(--mint) 100%);
-  border-bottom: 1px solid var(--border); padding: 26px 0 30px; margin-bottom: 26px;
-}
+header { position: relative; overflow: hidden; padding: 22px 0 6px; }
 header .web { position: absolute; top: -34px; right: -34px; opacity: .5; pointer-events: none; }
 header .web-left { position: absolute; bottom: -46px; left: -50px; opacity: .3; pointer-events: none; }
 .hero { display: grid; grid-template-columns: 290px 1fr; gap: 30px; align-items: start;
@@ -104,34 +105,81 @@ header .web-left { position: absolute; bottom: -46px; left: -50px; opacity: .3; 
 
 .brand { display: flex; align-items: center; gap: 10px; color: var(--iron);
   font-size: 13px; letter-spacing: .6px; text-transform: uppercase; font-weight: 600; }
-h1 { margin: 8px 0 6px; font-size: 27px; line-height: 1.25; letter-spacing: .2px;
+h1 { margin: 6px 0 5px; font-size: 26px; line-height: 1.25; letter-spacing: .2px;
   color: var(--green-dark); }
-.target { font-size: 14.5px; color: var(--muted); }
+.target { font-size: 14.5px; color: var(--muted); margin-bottom: 4px; }
 .target b { color: var(--text); }
-h2 { font-size: 19px; margin: 26px 0 12px; color: var(--green-dark);
+h2 { font-size: 19px; margin: 18px 0 10px; color: var(--green-dark);
   display: flex; align-items: center; gap: 9px; }
 h2 .ico { flex: none; opacity: .8; }
-.section-note { margin: -4px 0 14px; color: var(--muted); font-size: 13.5px; }
+.section-note { margin: -4px 0 12px; color: var(--muted); font-size: 13.5px; }
 
 /* ---------- общая статистика ---------- */
-.stat-group { margin-bottom: 12px; }
+.stat-group { margin-bottom: 10px; }
 .stat-group > h3 {
-  margin: 0 0 7px; font-size: 12px; text-transform: uppercase; letter-spacing: .7px;
+  margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .7px;
   color: var(--muted); font-weight: 700;
 }
 .cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-  padding: 11px 14px 12px; }
+  padding: 10px 14px 11px; text-align: left; font-family: inherit; color: var(--text); }
 .card .num { font-size: 22px; font-weight: 700; color: var(--green-dark); line-height: 1.25; }
 .card .num small { font-size: 14px; font-weight: 600; color: var(--muted); }
 .card .lbl { color: var(--text); font-size: 13px; margin-top: 1px; }
 .card .sub { color: var(--muted); font-size: 11.5px; margin-top: 3px; line-height: 1.35; }
+.card .go { color: var(--high); font-size: 12px; margin-top: 4px; font-weight: 600; }
 .card.accent { background: var(--mint); border-color: var(--mint-deep); }
 .card.alarm { border-color: #E8C4BB; background: #FDF6F4; }
 .card.alarm .num { color: var(--high); }
+.card.alarm.strong { border-width: 2px; border-color: var(--high); background: #FBEDE9;
+  box-shadow: 0 2px 10px rgba(180,80,60,.14); }
+button.card { cursor: pointer; width: 100%; transition: transform .15s, box-shadow .15s; }
+button.card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(180,80,60,.2); }
 .bar { height: 5px; border-radius: 99px; background: var(--panel-2); margin-top: 7px;
   overflow: hidden; border: 1px solid var(--border); }
 .bar span { display: block; height: 100%; background: var(--green); }
+
+/* ---------- карточки-разделы (открывают боковую панель) ---------- */
+.nav-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.nav-card { display: block; text-align: left; font-family: inherit; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 13px 15px 12px; color: var(--text); transition: transform .15s, box-shadow .15s,
+  border-color .15s; }
+.nav-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(38,48,43,.12);
+  border-color: var(--green); }
+.nav-card .nav-n { font-size: 21px; font-weight: 700; color: var(--green-dark); }
+.nav-card .nav-t { display: block; font-weight: 600; font-size: 14.5px; margin-top: 1px; }
+.nav-card .nav-s { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
+  line-height: 1.35; }
+.nav-card .nav-go { display: block; color: var(--green); font-size: 12.5px; margin-top: 6px; }
+.nav-card.pdf { background: var(--mint); border-color: var(--mint-deep); }
+.nav-card.pdf .nav-t { color: var(--green-dark); }
+
+/* ---------- боковая выпадающая панель ---------- */
+.backdrop { position: fixed; inset: 0; background: rgba(30,42,36,.38); z-index: 30;
+  opacity: 0; visibility: hidden; transition: opacity .22s, visibility .22s; }
+.backdrop.open { opacity: 1; visibility: visible; }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(1180px, 95vw);
+  background: var(--bg); border-left: 1px solid var(--border); z-index: 31;
+  box-shadow: -16px 0 40px rgba(38,48,43,.22); display: flex; flex-direction: column;
+  transform: translateX(101%); transition: transform .26s ease; }
+.drawer.open { transform: none; }
+.drawer-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 11px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.tab { background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+  padding: 7px 14px; font: inherit; font-size: 13px; color: var(--text); cursor: pointer;
+  transition: .15s; }
+.tab:hover { border-color: var(--green); color: var(--green-dark); }
+.tab.active { background: var(--green); border-color: var(--green); color: #fff; }
+.tab .n { opacity: .7; font-size: 12px; }
+.tab.active .n { opacity: .85; }
+.drawer-close { margin-left: auto; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 9px; width: 34px; height: 34px; font-size: 17px; line-height: 1; cursor: pointer;
+  color: var(--muted); font-family: inherit; }
+.drawer-close:hover { border-color: var(--high); color: var(--high); }
+.drawer-body { flex: 1; overflow: auto; padding: 4px 22px 40px; }
+.drawer-body h2:first-child { margin-top: 14px; }
+.panel[hidden] { display: none; }
 
 /* ---------- пояснения ---------- */
 .legend-help { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
@@ -180,6 +228,10 @@ td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align:
 tr.f-row { cursor: pointer; }
 tr.f-row:hover { background: var(--panel-2); }
 tr.f-row.open { background: var(--mint); }
+tr.f-row.critical { background: #FDF6F4; }
+tr.f-row.critical > td:first-child { box-shadow: inset 4px 0 0 var(--high); }
+tr.f-row.critical:hover { background: #F8E7E1; }
+tr.f-row.critical .title { color: #8E3A2A; }
 tr.details > td { background: var(--panel-2); }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px;
   font-weight: 600; white-space: nowrap; color: #fff; }
@@ -197,9 +249,12 @@ a.url:hover { text-decoration: none; border-bottom-color: var(--green); backgrou
 .title { font-weight: 600; }
 .conf { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
 .conf.sus { color: var(--medium); }
+.conf.yes { color: var(--high); font-weight: 600; }
 .toggle { background: none; border: none; color: var(--green); cursor: pointer;
   font-size: 13px; padding: 0; text-decoration: underline dotted; white-space: nowrap;
   font-family: inherit; }
+.lines { margin: 0; padding-left: 18px; }
+.lines li { margin: 2px 0; }
 
 /* ---------- подробности ---------- */
 .det { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; padding: 4px 0 8px; }
@@ -213,8 +268,6 @@ a.url:hover { text-decoration: none; border-bottom-color: var(--green); backgrou
 .block h4 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px;
   color: var(--muted); font-weight: 700; }
 .block p { margin: 0; font-size: 14px; }
-.det-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  font-size: 13px; color: var(--muted); }
 pre { margin: 0; padding: 10px 12px; background: #F7FAF8; border: 1px solid var(--border);
   border-radius: 8px; white-space: pre-wrap; word-break: break-word; color: #33403A;
   font: 12.5px/1.5 Consolas, "Courier New", monospace; max-height: 260px; overflow: auto; }
@@ -222,10 +275,33 @@ pre { margin: 0; padding: 10px 12px; background: #F7FAF8; border: 1px solid var(
 .empty { padding: 24px; text-align: center; color: var(--muted); background: var(--panel);
   border: 1px solid var(--border); border-radius: 12px; }
 .note { background: var(--panel); border: 1px solid var(--border);
-  border-left: 4px solid var(--iron); border-radius: 10px; padding: 11px 15px;
+  border-left: 4px solid var(--iron); border-radius: 10px; padding: 10px 15px;
   color: var(--muted); font-size: 13.5px; margin-bottom: 8px; }
-footer { margin-top: 32px; color: var(--muted); font-size: 12.5px; text-align: center;
+footer { margin-top: 20px; color: var(--muted); font-size: 12.5px; text-align: center;
   display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+
+/* ---------- печатная версия (сохранение в PDF) ---------- */
+#pdf-report { display: none; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #FFFFFF !important; padding: 0; }
+  body > *:not(#pdf-report) { display: none !important; }
+  #pdf-report { display: block !important; }
+}
+#pdf-report h1 { font-size: 20px; margin: 0 0 2px; color: var(--green-dark); }
+#pdf-report h2 { font-size: 15px; margin: 16px 0 6px; display: block; }
+#pdf-report .pdf-sub { margin: 0 0 12px; color: var(--muted); font-size: 12px; }
+#pdf-report table { font-size: 11.5px; border-radius: 0; page-break-inside: auto; }
+#pdf-report th, #pdf-report td { padding: 5px 7px; }
+#pdf-report thead { display: table-header-group; }
+#pdf-report tr { page-break-inside: avoid; }
+#pdf-report .kv { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+#pdf-report .kv div { border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px;
+  font-size: 11.5px; }
+#pdf-report .kv b { font-size: 15px; display: block; color: var(--green-dark); }
+#pdf-report .kv.alarm b { color: var(--high); }
+#pdf-report .pdf-foot { font-size: 10.5px; color: var(--muted); margin-top: 14px; }
+#pdf-report .crit td { background: #FDF6F4; }
 """
 
 JS = """
@@ -264,11 +340,34 @@ function selectButton(selector, value) {
     if (first) { first.classList.add('active'); }
   }
 }
+function openPanel(name) {
+  document.querySelectorAll('.panel').forEach(function (panel) {
+    panel.hidden = panel.dataset.panel !== name;
+  });
+  document.querySelectorAll('.tab').forEach(function (tab) {
+    tab.classList.toggle('active', tab.dataset.open === name);
+  });
+  var drawer = document.getElementById('drawer');
+  drawer.classList.add('open');
+  drawer.setAttribute('aria-hidden', 'false');
+  document.getElementById('backdrop').classList.add('open');
+  document.body.classList.add('locked');
+  var body = document.getElementById('drawer-body');
+  if (body) { body.scrollTop = 0; }
+}
+function closePanel() {
+  var drawer = document.getElementById('drawer');
+  drawer.classList.remove('open');
+  drawer.setAttribute('aria-hidden', 'true');
+  document.getElementById('backdrop').classList.remove('open');
+  document.body.classList.remove('locked');
+}
 function showSeverity(value) {
   selectButton('button.f.sev', value);
+  selectButton('button.f.cat-f', 'all');
+  document.getElementById('q').value = '';
   applyFilters();
-  var anchor = document.getElementById('findings');
-  if (anchor) { anchor.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  openPanel('findings');
 }
 function initGroup(selector) {
   document.querySelectorAll(selector).forEach(function (btn) {
@@ -333,6 +432,18 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('toggle-all').addEventListener('click', toggleAll);
   document.querySelectorAll('[data-reset]').forEach(function (btn) {
     btn.addEventListener('click', resetFilters);
+  });
+  document.querySelectorAll('[data-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () { openPanel(btn.dataset.open); });
+  });
+  document.querySelectorAll('[data-close]').forEach(function (btn) {
+    btn.addEventListener('click', closePanel);
+  });
+  document.querySelectorAll('[data-print]').forEach(function (btn) {
+    btn.addEventListener('click', function () { closePanel(); window.print(); });
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') { closePanel(); }
   });
   document.querySelectorAll('[data-severity-link]').forEach(function (element) {
     element.addEventListener('click', function () {
@@ -408,18 +519,44 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
     by_severity = findings.count_by_severity()
     by_category = findings.count_by_category()
     by_confidence = _count_confidence(items)
+    critical = [item for item in items
+                if item.severity == HIGH and item.confidence == CONFIRMED]
     generated = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     total = len(items)
+    pages = list(stats.get("page_list") or [])
+    errors = list(stats.get("errors") or [])
+    performed = list(stats.get("checks_list") or [])
+    target = str(stats.get("target", ""))
+
+    # Разделы боковой панели: ключ, заголовок, число в карточке, пояснение, содержимое
+    panels: List[Tuple[str, str, Optional[int], str, str]] = [
+        ("findings", "Найденные проблемы", total,
+         "фильтры по уровню и категории, поиск и подробный разбор каждой записи",
+         _findings_panel(items, by_severity, by_category, total)),
+        ("help", "Как читать отчёт", None,
+         "что означают уровни опасности, уверенность и содержимое записи",
+         _help_panel(by_severity)),
+        ("pages", "Просканированные страницы", len(pages),
+         "адреса, ответы сервера, глубина обхода и размер кода",
+         _pages_panel(pages)),
+        ("checks", "Какие проверки выполнялись", len(performed),
+         "полный список выполненных проверок и их охват",
+         _checks_panel(performed)),
+    ]
+    if errors:
+        panels.append(("errors", "Запросы, оставшиеся без ответа", len(errors),
+                       "таймауты, отказы соединения и другие сетевые ошибки",
+                       _errors_panel(errors)))
 
     parts: List[str] = []
     parts.append(
         "<!DOCTYPE html>\n<html lang=\"ru\">\n<head>\n<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        f"<title>Отчёт сканирования — {esc(str(stats.get('target', '')))}</title>\n"
+        f"<title>Отчёт сканирования — {esc(target)}</title>\n"
         f"<style>{CSS}</style>\n</head>\n<body>\n"
     )
 
-    # ---------- шапка: диаграмма слева, заголовок и статистика справа ----------
+    # ---------- главный экран: диаграмма, заголовок, статистика ----------
     parts.append("<header>")
     parts.append(WEB_CORNER)
     parts.append(WEB_LEFT)
@@ -429,42 +566,23 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
     parts.append(f"<div class=\"brand\">{SPIDER_MARK}<span>Сканер безопасности веб-приложений</span></div>")
     parts.append("<h1>Отчёт сканирования безопасности веб-приложения</h1>")
     parts.append(
-        f"<div class=\"target\">Цель: <b>{_link(str(stats.get('target', '')))}</b> · "
+        f"<div class=\"target\">Цель: <b>{_link(target)}</b> · "
         f"отчёт сформирован {generated}</div>"
     )
     parts.append(f"<h2>{SPIDER_ICON}Общая статистика</h2>")
-    parts.append(_stat_cards(stats, by_severity, by_category, by_confidence, total))
+    parts.append(_stat_cards(stats, by_severity, by_category, len(critical), total))
     parts.append("</div></div></header>\n")
 
     parts.append("<div class=\"wrap\">")
 
-    # ---------- как читать отчёт ----------
-    parts.append(f"<h2>{SPIDER_ICON}Как читать отчёт</h2>")
+    # ---------- карточки разделов и замечания ----------
+    parts.append(f"<h2>{SPIDER_ICON}Разделы отчёта</h2>")
     parts.append(
-        "<p class=\"section-note\">Нажмите на уровень опасности — здесь, в диаграмме или в "
-        "фильтрах — и в таблице «Найденные проблемы» останутся только записи этого уровня. "
-        "Строка таблицы раскрывается щелчком по ней.</p>"
+        "<p class=\"section-note\">Подробности вынесены в боковую панель: нажмите карточку — "
+        "раздел откроется поверх страницы, закрывается кнопкой «×», щелчком по фону или "
+        "клавишей Esc.</p>"
     )
-    parts.append("<div class=\"legend-help\">")
-    for severity, label, _color in CHART_CATEGORIES:
-        css = SEVERITY_CLASS[severity].replace("sev-", "")
-        count = by_severity.get(severity, 0)
-        parts.append(
-            f"<button type=\"button\" class=\"help-item {css}\" "
-            f"data-severity-link=\"{esc(severity)}\">"
-            f"<b>{esc(label)} ({esc(severity)}) — {count}</b>"
-            f"<span>{esc(SEVERITY_HINT[severity])}</span>"
-            f"<span class=\"go\">Показать эти находки →</span></button>"
-        )
-    parts.append(
-        "<div class=\"help-item\"><b>Уверенность</b><span>«подтверждено» — факт виден прямо "
-        "в ответе сервера; «подозрение» — признак требует ручной проверки, возможно ложное "
-        "срабатывание.</span></div>"
-        "<div class=\"help-item\"><b>Что внутри каждой записи</b><span>тип угрозы, чем она "
-        "опасна, по какой логике сканер сделал вывод, отправленный запрос, фрагмент ответа "
-        "и рекомендация.</span></div>"
-    )
-    parts.append("</div>")
+    parts.append(_nav_cards(panels))
 
     notes = stats.get("notes") or []
     if notes:
@@ -472,32 +590,6 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
         for note in notes:
             parts.append(f"<div class=\"note\">{esc(str(note))}</div>")
 
-    # ---------- таблица находок ----------
-    parts.append(f"<h2 id=\"findings\">{SPIDER_ICON}Найденные проблемы</h2>")
-    parts.append(_filters(by_severity, by_category, total))
-
-    if not items:
-        parts.append("<div class=\"empty\">Проблем не обнаружено. Это не гарантирует "
-                     "отсутствие уязвимостей: сканер выполняет ограниченный набор "
-                     "безопасных проверок.</div>")
-    else:
-        parts.append(
-            "<table><thead><tr>"
-            "<th>Уровень опасности</th><th>Что нашли</th><th>Тип угрозы</th>"
-            "<th>Категория</th><th>Где нашли (адрес)</th><th>Насколько точно</th><th></th>"
-            "</tr></thead><tbody>"
-        )
-        for index, finding in enumerate(items):
-            parts.append(_row(index, finding))
-        parts.append("</tbody></table>")
-        parts.append(
-            "<div class=\"empty\" id=\"nothing\" style=\"display:none\">"
-            "Под выбранные условия не подходит ни одна запись. "
-            "<button type=\"button\" class=\"toggle\" data-reset>Сбросить фильтры</button>"
-            "</div>"
-        )
-
-    parts.append(_appendix(stats))
     parts.append(
         f"<footer>{SPIDER_MARK}<span>Отчёт сформирован сканером конфигурации веб-приложений. "
         "Все проверки безопасны и не изменяют данные; тестовые значения — "
@@ -505,6 +597,14 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
         "Результаты со статусом «подозрение» требуют ручной проверки.</span></footer>"
     )
     parts.append("</div>")
+
+    # ---------- боковая панель ----------
+    parts.append(_drawer(panels))
+
+    # ---------- печатная версия для сохранения в PDF ----------
+    parts.append(_pdf_report(stats, by_severity, by_confidence, critical, items,
+                             total, generated))
+
     parts.append(f"<script>{JS}</script>\n</body>\n</html>")
     return "".join(parts)
 
@@ -577,15 +677,13 @@ def _chart_card(by_severity: Dict[str, int], total: int) -> str:
 
 # ---------- общая статистика ----------
 def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
-                by_category: Dict[str, int], by_confidence: Dict[str, int],
-                total: int) -> str:
+                by_category: Dict[str, int], critical: int, total: int) -> str:
     requests_made = _int(stats.get("requests_made"))
     max_requests = _int(stats.get("max_requests"))
     pages = _int(stats.get("pages"))
     max_pages = _int(stats.get("max_pages"))
     attention = by_severity.get(HIGH, 0) + by_severity.get(MEDIUM, 0)
     errors = _int(stats.get("error_count", len(stats.get("errors") or [])))
-    external = _int(stats.get("external_count", len(stats.get("external_links") or [])))
     https = bool(stats.get("https", str(stats.get("target", "")).lower().startswith("https")))
 
     scanned = [
@@ -595,10 +693,6 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
               "поля ввода — основные точки для проверки"),
         _card(f"{_int(stats.get('url_params'))}", "Параметров в адресах",
               "значения в ссылках вида ?id=5"),
-        _card(f"{external}", "Ссылок на чужие сайты",
-              "сканер по ним не переходил"),
-        _card(f"≤ {_int(stats.get('max_depth'))}", "Глубина обхода",
-              "переходов по ссылкам от стартовой страницы"),
         _card("HTTPS" if https else "HTTP", "Протокол сайта",
               "соединение шифруется" if https else "соединение не шифруется"),
     ]
@@ -607,14 +701,15 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
         _card(f"{total}", "Всего записей в отчёте", "включая справочные «Безопасно»"),
         _card(f"{attention}", "Требуют внимания", "высокая и средняя опасность",
               css="alarm" if attention else ""),
+        _card(f"{critical}", "Подтверждённые угрозы высокого уровня",
+              "факт виден прямо в ответе сервера — исправлять первыми"
+              if critical else "таких находок нет",
+              css="alarm strong" if critical else "",
+              link=HIGH if critical else ""),
         _card(f"{by_category.get(VULN, 0)}", "Уязвимостей приложения",
               "ошибки обработки пользовательского ввода"),
         _card(f"{by_category.get(CONFIG, 0)}", "Проблем конфигурации",
               "настройки сервера, заголовков, cookie"),
-        _card(f"{by_confidence.get(CONFIRMED, 0)}", "Подтверждено",
-              "факт виден прямо в ответе сервера"),
-        _card(f"{by_confidence.get(SUSPECTED, 0)}", "Требуют ручной проверки",
-              "признак есть, возможно ложное срабатывание"),
     ]
 
     percent = int(round(100 * requests_made / max_requests)) if max_requests else 0
@@ -629,8 +724,6 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
               "таймаут, отказ соединения или ошибка сети"),
         _card(f"{stats.get('duration', 0)}<small> с</small>", "Длительность сканирования",
               "между запросами выдерживается пауза 0.5 с"),
-        _card(f"{_int(stats.get('insecure_requests'))}", "Запросов без проверки сертификата",
-              "выполняются, только если сертификат не прошёл проверку"),
     ]
 
     groups = (
@@ -647,19 +740,179 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
     return "".join(html_parts)
 
 
-def _card(number: str, label: str, sub: str = "", css: str = "", bar: int = -1) -> str:
+def _card(number: str, label: str, sub: str = "", css: str = "", bar: int = -1,
+          link: str = "") -> str:
     bar_html = ""
     if bar >= 0:
         bar_html = f"<div class=\"bar\"><span style=\"width:{min(max(bar, 0), 100)}%\"></span></div>"
     sub_html = f"<div class=\"sub\">{esc(sub)}</div>" if sub else ""
     classes = ("card " + css).strip()
+    body = (f"<div class=\"num\">{number}</div><div class=\"lbl\">{esc(label)}</div>"
+            f"{sub_html}{bar_html}")
+    if link:
+        return (f"<button type=\"button\" class=\"{classes}\" "
+                f"data-severity-link=\"{esc(link)}\">{body}"
+                f"<div class=\"go\">Показать эти находки →</div></button>")
+    return f"<div class=\"{classes}\">{body}</div>"
+
+
+# ---------- карточки разделов и боковая панель ----------
+def _nav_cards(panels: Sequence[Tuple[str, str, Optional[int], str, str]]) -> str:
+    cards: List[str] = []
+    for key, title, count, note, _content in panels:
+        number = f"<span class=\"nav-n\">{count}</span> " if count is not None else ""
+        cards.append(
+            f"<button type=\"button\" class=\"nav-card\" data-open=\"{esc(key)}\">"
+            f"{number}<span class=\"nav-t\">{esc(title)}</span>"
+            f"<span class=\"nav-s\">{esc(note)}</span>"
+            f"<span class=\"nav-go\">Открыть раздел →</span></button>"
+        )
+    cards.append(
+        "<button type=\"button\" class=\"nav-card pdf\" data-print>"
+        "<span class=\"nav-t\">Скачать PDF</span>"
+        "<span class=\"nav-s\">только находки высокого уровня: подтверждённые угрозы "
+        "и подозрения</span>"
+        "<span class=\"nav-go\">Откроется окно печати — выберите «Сохранить в PDF» →</span>"
+        "</button>"
+    )
+    return f"<div class=\"nav-cards\">{''.join(cards)}</div>"
+
+
+def _drawer(panels: Sequence[Tuple[str, str, Optional[int], str, str]]) -> str:
+    tabs: List[str] = []
+    sections: List[str] = []
+    for index, (key, title, count, _note, content) in enumerate(panels):
+        active = " active" if index == 0 else ""
+        number = f" <span class=\"n\">{count}</span>" if count is not None else ""
+        tabs.append(f"<button type=\"button\" class=\"tab{active}\" "
+                    f"data-open=\"{esc(key)}\">{esc(title)}{number}</button>")
+        hidden = "" if index == 0 else " hidden"
+        sections.append(f"<section class=\"panel\" data-panel=\"{esc(key)}\"{hidden}>"
+                        f"{content}</section>")
     return (
-        f"<div class=\"{classes}\"><div class=\"num\">{number}</div>"
-        f"<div class=\"lbl\">{esc(label)}</div>{sub_html}{bar_html}</div>"
+        "<div class=\"backdrop\" id=\"backdrop\" data-close></div>"
+        "<aside class=\"drawer\" id=\"drawer\" role=\"dialog\" aria-label=\"Разделы отчёта\" "
+        "aria-hidden=\"true\">"
+        f"<div class=\"drawer-top\">{''.join(tabs)}"
+        "<button type=\"button\" class=\"drawer-close\" data-close "
+        "title=\"Закрыть панель (Esc)\" aria-label=\"Закрыть панель\">×</button></div>"
+        f"<div class=\"drawer-body\" id=\"drawer-body\">{''.join(sections)}</div>"
+        "</aside>"
     )
 
 
-# ---------- фильтры ----------
+# ---------- содержимое разделов ----------
+def _help_panel(by_severity: Dict[str, int]) -> str:
+    parts = [f"<h2>{SPIDER_ICON}Как читать отчёт</h2>",
+             "<p class=\"section-note\">Нажмите на уровень опасности — здесь, в диаграмме на "
+             "главном экране или в фильтрах — и в таблице «Найденные проблемы» останутся "
+             "только записи этого уровня. Строка таблицы раскрывается щелчком по ней.</p>",
+             "<div class=\"legend-help\">"]
+    for severity, label, _color in CHART_CATEGORIES:
+        css = SEVERITY_CLASS[severity].replace("sev-", "")
+        count = by_severity.get(severity, 0)
+        parts.append(
+            f"<button type=\"button\" class=\"help-item {css}\" "
+            f"data-severity-link=\"{esc(severity)}\">"
+            f"<b>{esc(label)} ({esc(severity)}) — {count}</b>"
+            f"<span>{esc(SEVERITY_HINT[severity])}</span>"
+            f"<span class=\"go\">Показать эти находки →</span></button>"
+        )
+    parts.append(
+        "<div class=\"help-item\"><b>Уверенность</b><span>«подтверждено» — факт виден прямо "
+        "в ответе сервера; «подозрение» — признак требует ручной проверки, возможно ложное "
+        "срабатывание.</span></div>"
+        "<div class=\"help-item high\"><b>Красная строка в таблице</b><span>подтверждённая "
+        "находка высокого уровня: угроза реальна и видна в ответе сервера — это первая "
+        "очередь работ.</span></div>"
+        "<div class=\"help-item\"><b>Что внутри каждой записи</b><span>тип угрозы, чем она "
+        "опасна, по какой логике сканер сделал вывод, отправленный запрос, фрагмент ответа "
+        "и рекомендация.</span></div>"
+        "<div class=\"help-item info\"><b>PDF-версия</b><span>кнопка «Скачать PDF» на главном "
+        "экране открывает печать краткой сводки только с находками высокого уровня "
+        "(подтверждённые — первыми). Средние и низкие остаются в HTML-отчёте.</span></div>"
+    )
+    parts.append("</div>")
+    return "".join(parts)
+
+
+def _findings_panel(items: Sequence[Finding], by_severity: Dict[str, int],
+                    by_category: Dict[str, int], total: int) -> str:
+    parts = [f"<h2 id=\"findings\">{SPIDER_ICON}Найденные проблемы</h2>",
+             _filters(by_severity, by_category, total)]
+    if not items:
+        parts.append("<div class=\"empty\">Проблем не обнаружено. Это не гарантирует "
+                     "отсутствие уязвимостей: сканер выполняет ограниченный набор "
+                     "безопасных проверок.</div>")
+        return "".join(parts)
+
+    parts.append(
+        "<table><thead><tr>"
+        "<th>Уровень опасности</th><th>Что нашли</th><th>Тип угрозы</th>"
+        "<th>Категория</th><th>Где нашли (адрес)</th><th>Насколько точно</th><th></th>"
+        "</tr></thead><tbody>"
+    )
+    for index, finding in enumerate(items):
+        parts.append(_row(index, finding))
+    parts.append("</tbody></table>")
+    parts.append(
+        "<div class=\"empty\" id=\"nothing\" style=\"display:none\">"
+        "Под выбранные условия не подходит ни одна запись. "
+        "<button type=\"button\" class=\"toggle\" data-reset>Сбросить фильтры</button>"
+        "</div>"
+    )
+    return "".join(parts)
+
+
+def _pages_panel(pages: Sequence[Dict[str, object]]) -> str:
+    parts = [f"<h2>{SPIDER_ICON}Просканированные страницы</h2>"]
+    if not pages:
+        parts.append("<div class=\"empty\">Ни одна страница не была загружена.</div>")
+        return "".join(parts)
+    parts.append(
+        "<p class=\"section-note\">Адреса кликабельны — открываются в новой вкладке.</p>"
+        "<table><thead><tr><th>№</th><th>Адрес страницы</th><th>Ответ сервера</th>"
+        "<th>Глубина от стартовой</th><th>Тип содержимого</th>"
+        "<th>Кол-во символов в коде</th></tr></thead><tbody>"
+    )
+    for number, page in enumerate(pages, 1):
+        parts.append(
+            f"<tr><td>{number}</td><td>{_link(str(page['url']))}</td>"
+            f"<td class=\"nowrap\">{_status(page['status'])}</td>"
+            f"<td>{page['depth']}</td>"
+            f"<td class=\"cat\">{esc(page['content_type'] or '—')}</td>"
+            f"<td class=\"nowrap\">{_thousands(page['size'])}</td></tr>"
+        )
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def _checks_panel(performed: Sequence[Tuple[str, str]]) -> str:
+    parts = [f"<h2>{SPIDER_ICON}Какие проверки выполнялись</h2>"]
+    if not performed:
+        parts.append("<div class=\"empty\">Проверки не выполнялись.</div>")
+        return "".join(parts)
+    parts.append("<table><thead><tr><th>Проверка</th><th>Где выполнялась</th>"
+                 "</tr></thead><tbody>")
+    for name, scope in performed:
+        parts.append(f"<tr><td>{_lines(name)}</td><td class=\"cat\">{esc(scope)}</td></tr>")
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def _errors_panel(errors: Sequence[Tuple[str, str]]) -> str:
+    parts = [f"<h2>{SPIDER_ICON}Запросы, оставшиеся без ответа</h2>",
+             "<p class=\"section-note\">Эти адреса не удалось загрузить: часть проверок для "
+             "них не выполнялась.</p>",
+             "<table><thead><tr><th>Адрес</th><th>Что произошло</th></tr></thead><tbody>"]
+    for url, message in list(errors)[:40]:
+        parts.append(f"<tr><td>{_link(str(url))}</td>"
+                     f"<td class=\"cat\">{esc(message)}</td></tr>")
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+# ---------- фильтры и строки таблицы ----------
 def _filters(by_severity: Dict[str, int], by_category: Dict[str, int], total: int) -> str:
     severity_buttons = [
         f"<button class=\"f sev wide active\" data-value=\"all\">Все уровни "
@@ -697,20 +950,25 @@ def _filters(by_severity: Dict[str, int], by_category: Dict[str, int], total: in
         "</div>"
         f"<p class=\"hint\">Показано записей: <b id=\"shown\">0</b> из {total}. "
         "Щёлкните по строке (или по слову «подробнее»), чтобы увидеть, чем проблема опасна, "
-        "как сканер её нашёл, какой запрос отправлял и что нужно исправить.</p>"
+        "как сканер её нашёл, какой запрос отправлял и что нужно исправить. "
+        "<b>Красным</b> выделены подтверждённые находки высокого уровня.</p>"
     )
 
 
 def _row(index: int, finding: Finding) -> str:
     severity_class = SEVERITY_CLASS.get(finding.severity, "sev-info")
     severity_label = SEVERITY_LABEL.get(finding.severity, finding.severity)
+    critical = finding.severity == HIGH and finding.confidence == CONFIRMED
     confidence_class = "conf sus" if finding.confidence == SUSPECTED else "conf"
+    if critical:
+        confidence_class = "conf yes"
+    row_class = "f-row critical" if critical else "f-row"
     search_blob = " ".join([finding.url, finding.title, finding.category, finding.severity,
                             severity_label, finding.threat_type, finding.impact,
                             finding.detection, finding.evidence, finding.request,
                             finding.confidence]).lower()
     row = (
-        f"<tr class=\"f-row\" id=\"r{index}\" data-id=\"{index}\" "
+        f"<tr class=\"{row_class}\" id=\"r{index}\" data-id=\"{index}\" "
         f"data-severity=\"{esc(finding.severity)}\" data-category=\"{esc(finding.category)}\" "
         f"data-search=\"{esc(search_blob)}\">"
         f"<td class=\"nowrap\"><span class=\"badge {severity_class}\">{esc(severity_label)}"
@@ -742,50 +1000,84 @@ def _row(index: int, finding: Finding) -> str:
     return row + details
 
 
-def _appendix(stats: Dict[str, object]) -> str:
-    parts = [f"<h2>{SPIDER_ICON}Просканированные страницы</h2>"]
-    pages = stats.get("page_list") or []
-    if pages:
-        parts.append(
-            "<p class=\"section-note\">Адреса кликабельны — открываются в новой вкладке.</p>"
-            "<table><thead><tr><th>№</th><th>Адрес страницы</th><th>Ответ сервера</th>"
-            "<th>Глубина от стартовой</th><th>Тип содержимого</th>"
-            "<th>Кол-во символов в коде</th></tr></thead><tbody>"
-        )
-        for number, page in enumerate(pages, 1):
-            parts.append(
-                f"<tr><td>{number}</td><td>{_link(str(page['url']))}</td>"
-                f"<td class=\"nowrap\">{_status(page['status'])}</td>"
-                f"<td>{page['depth']}</td>"
-                f"<td class=\"cat\">{esc(page['content_type'] or '—')}</td>"
-                f"<td class=\"nowrap\">{_thousands(page['size'])}</td></tr>"
-            )
-        parts.append("</tbody></table>")
-    else:
-        parts.append("<div class=\"empty\">Ни одна страница не была загружена.</div>")
+# ---------- печатная версия (сохранение в PDF) ----------
+def _pdf_report(stats: Dict[str, object], _by_severity: Dict[str, int],
+                _by_confidence: Dict[str, int], critical: Sequence[Finding],
+                items: Sequence[Finding], total: int, generated: str) -> str:
+    # В PDF только самые опасные: уровень High (подтверждённые — первыми).
+    high = [item for item in items if item.severity == HIGH]
+    critical_ids = {id(item) for item in critical}
+    suspected_high = [item for item in high if id(item) not in critical_ids]
+    requests_made = _int(stats.get("requests_made"))
+    max_requests = _int(stats.get("max_requests"))
 
-    errors = stats.get("errors") or []
-    if errors:
-        parts.append(f"<h2>{SPIDER_ICON}Запросы, оставшиеся без ответа</h2>")
-        parts.append("<table><thead><tr><th>Адрес</th><th>Что произошло</th>"
-                     "</tr></thead><tbody>")
-        for url, message in errors[:40]:
-            parts.append(f"<tr><td>{_link(str(url))}</td>"
-                         f"<td class=\"cat\">{esc(message)}</td></tr>")
-        parts.append("</tbody></table>")
+    parts = ["<div id=\"pdf-report\">",
+             "<h1>Краткий отчёт: самые опасные находки</h1>",
+             f"<p class=\"pdf-sub\">Цель: {esc(str(stats.get('target', '')))} · "
+             f"сформирован {esc(generated)} · только уровень «Высокая»</p>"]
 
-    performed = stats.get("checks_list") or []
-    if performed:
-        parts.append(f"<h2>{SPIDER_ICON}Какие проверки выполнялись</h2>")
-        parts.append("<table><thead><tr><th>Проверка</th><th>Где выполнялась</th>"
-                     "</tr></thead><tbody>")
-        for name, scope in performed:
-            parts.append(f"<tr><td>{esc(name)}</td><td class=\"cat\">{esc(scope)}</td></tr>")
-        parts.append("</tbody></table>")
+    cells = [
+        ("Страниц проверено", _int(stats.get("pages")), False),
+        ("Запросов к сайту", f"{requests_made} / {max_requests}", False),
+        ("Всего записей в полном отчёте", total, False),
+        ("Высокий уровень", len(high), True),
+        ("из них подтверждено", len(critical), True),
+        ("Длительность, с", stats.get("duration", 0), False),
+    ]
+    parts.append("<div class=\"kv\">")
+    for label, value, alarm in cells:
+        css = " class=\"alarm\"" if alarm and _int(value, 1) else ""
+        parts.append(f"<div{css}><b>{esc(value)}</b>{esc(label)}</div>")
+    parts.append("</div>")
+
+    if critical:
+        parts.append(f"<h2>Подтверждённые угрозы высокого уровня ({len(critical)})</h2>"
+                     "<p class=\"pdf-sub\">Факт виден в ответе сервера — исправлять первыми.</p>")
+        parts.append(_pdf_table(critical, mark=True))
+    if suspected_high:
+        parts.append(f"<h2>Подозрения высокого уровня ({len(suspected_high)})</h2>"
+                     "<p class=\"pdf-sub\">Признак есть, нужна ручная проверка.</p>")
+        parts.append(_pdf_table(suspected_high, mark=False))
+    if not high:
+        parts.append("<h2>Находок высокого уровня нет</h2>"
+                     "<p>Сканер не нашёл проблем наивысшей опасности. Средние и низкие "
+                     "находки — только в HTML-версии отчёта.</p>")
+
+    parts.append(
+        "<p class=\"pdf-foot\">В PDF попали только находки уровня «Высокая». Средние, низкие "
+        "и справочные записи, доказательства и логика проверок — в HTML-версии отчёта. "
+        "Отсутствие находок не гарантирует отсутствие уязвимостей: сканер выполняет "
+        "ограниченный набор безопасных проверок и не изменяет данные.</p>"
+    )
+    parts.append("</div>")
     return "".join(parts)
 
 
+def _pdf_table(findings: Sequence[Finding], mark: bool) -> str:
+    rows: List[str] = []
+    for finding in findings:
+        css = " class=\"crit\"" if mark else ""
+        rows.append(
+            f"<tr{css}><td>{esc(SEVERITY_LABEL.get(finding.severity, finding.severity))}</td>"
+            f"<td>{esc(finding.title)}</td>"
+            f"<td>{esc(finding.url)}</td>"
+            f"<td>{esc(finding.confidence)}</td>"
+            f"<td>{esc(finding.recommendation or '—')}</td></tr>"
+        )
+    return ("<table><thead><tr><th>Уровень</th><th>Что нашли</th><th>Где нашли</th>"
+            "<th>Точность</th><th>Как исправить</th></tr></thead><tbody>"
+            + "".join(rows) + "</tbody></table>")
+
+
 # ---------- вспомогательное ----------
+def _lines(text: object) -> str:
+    """Длинное перечисление через «;» — по одному пункту на строку."""
+    pieces = [piece.strip() for piece in str(text).split(";") if piece.strip()]
+    if len(pieces) < 2:
+        return esc(text)
+    return "<ul class=\"lines\">" + "".join(f"<li>{esc(piece)}</li>" for piece in pieces) + "</ul>"
+
+
 def _count_confidence(items: List[Finding]) -> Dict[str, int]:
     counts: Dict[str, int] = {CONFIRMED: 0, SUSPECTED: 0}
     for finding in items:

@@ -1,0 +1,89 @@
+﻿python : test_payloads_are_safe (test_scanner.TestActiveHelpers.test_payloads_are_safe) ... ok
+C:\Users\USER\AppData\Local\Temp\ps-script-ec2be40b-2135-4884-ba82-2d56e664f156.ps1:7 знак:1
++ python -m unittest discover -s tests -v 2>&1 | Out-File -Encoding utf ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (test_payloads_a...re_safe) ... ok:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+test_redirect_param_detection (test_scanner.TestActiveHelpers.test_redirect_param_detection) ... ok
+test_structure_comparison (test_scanner.TestActiveHelpers.test_structure_comparison) ... ok
+test_dom_xss_sink_detected (test_scanner.TestClientSideChecks.test_dom_xss_sink_detected) ... ok
+test_insecure_websocket_on_https_page (test_scanner.TestClientSideChecks.test_insecure_websocket_on_https_page) ... ok
+test_postmessage_with_origin_check_is_clean (test_scanner.TestClientSideChecks.test_postmessage_with_origin_check_is_cl
+ean) ... ok
+test_postmessage_without_origin_check (test_scanner.TestClientSideChecks.test_postmessage_without_origin_check) ... ok
+test_safe_script_is_not_reported (test_scanner.TestClientSideChecks.test_safe_script_is_not_reported) ... ok
+test_token_in_local_storage (test_scanner.TestClientSideChecks.test_token_in_local_storage) ... ok
+test_ask_url_accepts_full_url (test_scanner.TestConsoleInput.test_ask_url_accepts_full_url) ... ok
+test_ask_url_adds_missing_scheme (test_scanner.TestConsoleInput.test_ask_url_adds_missing_scheme) ... ok
+test_ask_url_gives_up_after_attempts (test_scanner.TestConsoleInput.test_ask_url_gives_up_after_attempts) ... ╤ыш°ъюь ь
+эюую эхєфрўэ√ї яюя√Єюъ ттюфр.
+ok
+test_ask_url_returns_none_on_cancel (test_scanner.TestConsoleInput.test_ask_url_returns_none_on_cancel) ... ok
+test_normalize_target_adds_scheme (test_scanner.TestConsoleInput.test_normalize_target_adds_scheme) ... ok
+test_sanitize_url (test_scanner.TestConsoleInput.test_sanitize_url) ... ok
+test_cookie_value_is_not_stored_in_report (test_scanner.TestCookieChecks.test_cookie_value_is_not_stored_in_report) ...
+ ok
+test_insecure_cookie (test_scanner.TestCookieChecks.test_insecure_cookie) ... ok
+test_secure_cookie_is_clean (test_scanner.TestCookieChecks.test_secure_cookie_is_clean) ... ok
+┬тхфшЄх рфЁхё фы  ёърэшЁютрэш  (ьюцэю тёЄртшЄ№ яюыэ√щ URL ёю ёїхьющ, яєЄ╕ь ш ярЁрьхЄЁрьш).
+╧ЁшьхЁ√: https://example.com/catalog?page=2&sort=new | 127.0.0.1:8099 | example.com
+  └фЁхё яєёЄющ. ╧ютЄюЁшЄх ттюф шыш эрцьшЄх Ctrl+C фы  т√їюфр.
+  ╤їхьр лftp╗ эх яюффхЁцштрхЄё : эєцхэ http шыш https.
+┬тхфшЄх рфЁхё фы  ёърэшЁютрэш  (ьюцэю тёЄртшЄ№ яюыэ√щ URL ёю ёїхьющ, яєЄ╕ь ш ярЁрьхЄЁрьш).
+╧ЁшьхЁ√: https://example.com/catalog?page=2&sort=new | 127.0.0.1:8099 | example.com
+  ╤їхьр юяЁхфхыхэр ртЄюьрЄшўхёъш: http://127.0.0.1:8099/path
+┬тхфшЄх рфЁхё фы  ёърэшЁютрэш  (ьюцэю тёЄртшЄ№ яюыэ√щ URL ёю ёїхьющ, яєЄ╕ь ш ярЁрьхЄЁрьш).
+╧ЁшьхЁ√: https://example.com/catalog?page=2&sort=new | 127.0.0.1:8099 | example.com
+  └фЁхё яєёЄющ. ╧ютЄюЁшЄх ттюф шыш эрцьшЄх Ctrl+C фы  т√їюфр.
+  └фЁхё яєёЄющ. ╧ютЄюЁшЄх ттюф шыш эрцьшЄх Ctrl+C фы  т√їюфр.
+┬тхфшЄх рфЁхё фы  ёърэшЁютрэш  (ьюцэю тёЄртшЄ№ яюыэ√щ URL ёю ёїхьющ, яєЄ╕ь ш ярЁрьхЄЁрьш).
+╧ЁшьхЁ√: https://example.com/catalog?page=2&sort=new | 127.0.0.1:8099 | example.com
+
+[1/4] ╬сїюф ёрщЄр: http://127.0.0.1:52380/
+      чруЁєцхэю ёЄЁрэшЎ: 4; тэх°эшї ёё√ыюъ яЁюяє∙хэю: 1
+[2/4] ╧ЁютхЁър чруюыютъют, cookies, ЇюЁь ш ёюфхЁцшьюую (4 ёЄЁ.)
+[3/4] ╧ЁютхЁър HTTPS/TLS, CORS, ьхЄюфют ш ёыєцхсэ√ї ЁхёєЁёют
+test_external_links_are_not_visited (test_scanner.TestEndToEnd.test_external_links_are_not_visited) ... ok
+[1/4] ╬сїюф ёрщЄр: http://127.0.0.1:52380/
+      чруЁєцхэю ёЄЁрэшЎ: 4; тэх°эшї ёё√ыюъ яЁюяє∙хэю: 1
+[2/4] ╧ЁютхЁър чруюыютъют, cookies, ЇюЁь ш ёюфхЁцшьюую (4 ёЄЁ.)
+[3/4] ╧ЁютхЁър HTTPS/TLS, CORS, ьхЄюфют ш ёыєцхсэ√ї ЁхёєЁёют
+[4/4] └ъЄштэ√х яЁютхЁъш (XSS, SQL ш NoSQL, ЁхфшЁхъЄ, °рсыюэ√, ўЄхэшх Їрщыют, ъюьрэф√ ╬╤, CRLF); фюёЄєяэю чряЁюёют: 6
+test_scan_finds_expected_issues (test_scanner.TestEndToEnd.test_scan_finds_expected_issues) ... ok
+test_deduplication_and_sorting (test_scanner.TestFindingList.test_deduplication_and_sorting) ... ok
+test_conflicting_duplicate_headers (test_scanner.TestHeaderChecks.test_conflicting_duplicate_headers) ... ok
+test_good_headers_produce_no_findings (test_scanner.TestHeaderChecks.test_good_headers_produce_no_findings) ... ok
+test_missing_headers_reported (test_scanner.TestHeaderChecks.test_missing_headers_reported) ... ok
+test_open_cors_on_page_is_reported (test_scanner.TestHeaderChecks.test_open_cors_on_page_is_reported) ... ok
+test_short_hsts_max_age (test_scanner.TestHeaderChecks.test_short_hsts_max_age) ... ok
+test_detects_paths_ips_comments_and_maps (test_scanner.TestInfoLeak.test_detects_paths_ips_comments_and_maps) ... ok
+test_secret_value_is_masked (test_scanner.TestInfoLeak.test_secret_value_is_masked) ... ok
+test_every_kind_has_all_three_texts (test_scanner.TestKnowledge.test_every_kind_has_all_three_texts) ... ok
+test_every_kind_used_in_checks_is_described (test_scanner.TestKnowledge.test_every_kind_used_in_checks_is_described)
+╩рцф√щ тшф эрїюфъш шч ъюфр яЁютхЁюъ фюыцхэ шьхЄ№ яю ёэхэш  т срчх чэрэшщ. ... ok
+test_finding_is_enriched_from_knowledge_base (test_scanner.TestKnowledge.test_finding_is_enriched_from_knowledge_base) 
+... ok
+test_unknown_kind_falls_back_to_category (test_scanner.TestKnowledge.test_unknown_kind_falls_back_to_category) ... ok
+test_budget_and_reserve (test_scanner.TestLimits.test_budget_and_reserve) ... ok
+test_limits_are_enforced (test_scanner.TestLimits.test_limits_are_enforced) ... ok
+test_report_contains_donut_chart (test_scanner.TestReport.test_report_contains_donut_chart) ... ok
+test_report_contains_statistics (test_scanner.TestReport.test_report_contains_statistics) ... ok
+test_report_escapes_html (test_scanner.TestReport.test_report_escapes_html) ... ok
+test_report_explains_threat_and_logic (test_scanner.TestReport.test_report_explains_threat_and_logic) ... ok
+test_severity_levels_are_clickable_and_filters_are_grouped (test_scanner.TestReport.test_severity_levels_are_clickable_
+and_filters_are_grouped) ... ok
+test_single_expand_collapse_button (test_scanner.TestReport.test_single_expand_collapse_button) ... ok
+test_statistics_block_is_detailed (test_scanner.TestReport.test_statistics_block_is_detailed) ... ok
+test_urls_are_clickable_links (test_scanner.TestReport.test_urls_are_clickable_links) ... ok
+test_is_valid_host (test_scanner.TestUtils.test_is_valid_host) ... ok
+test_mask_secret_does_not_store_value (test_scanner.TestUtils.test_mask_secret_does_not_store_value) ... ok
+test_normalize_url (test_scanner.TestUtils.test_normalize_url) ... ok
+test_same_host_excludes_subdomains (test_scanner.TestUtils.test_same_host_excludes_subdomains) ... ok
+test_set_param (test_scanner.TestUtils.test_set_param) ... ok
+test_snippet_centers_on_needle (test_scanner.TestUtils.test_snippet_centers_on_needle) ... ok
+
+----------------------------------------------------------------------
+Ran 48 tests in 32.076s
+
+OK
