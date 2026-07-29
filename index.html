@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spyvision — анализ URL на уязвимости</title>
+  <style>
+    :root {
+      --bg: #050a1b;
+      --panel: rgba(12, 28, 58, .32);
+      --panel-2: rgba(16, 36, 70, .42);
+      --mint: rgba(0, 180, 230, .16);
+      --mint-deep: rgba(0, 200, 255, .28);
+      --green: #7EC8E8;
+      --green-dark: #B8E4F6;
+      --iron: #9BB4C8;
+      --iron-light: #C0D6E6;
+      --border: rgba(160, 210, 240, .38);
+      --text: #E4F2FA;
+      --muted: #A8C2D4;
+      --safe: #6AD0BE;
+      --high: #E89898;
+      --cyan: #7ED4F0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        linear-gradient(165deg, rgba(4, 10, 24, .28) 0%, rgba(6, 14, 32, .16) 45%, rgba(4, 8, 22, .32) 100%),
+        url("bg.jfif") center/cover fixed no-repeat;
+      font: 16px/1.65 "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 28px 24px 20px;
+      overflow: visible;
+    }
+
+    /* —— Brand block (Google-style center stack) —— */
+    .brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      margin-top: clamp(150px, 30vh, 340px);
+      margin-bottom: 34px;
+      animation: brandIn .7s ease both;
+      position: relative;
+      z-index: 2;
+    }
+
+    @keyframes brandIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    .mascot-wrap {
+      position: relative;
+      flex: none;
+      width: 152px;
+      height: 170px;
+      animation: float 3.6s ease-in-out infinite;
+      overflow: visible;
+    }
+
+    /* Нить паутины от края окна вниз к пауку */
+    .silk-up {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% - 6px);
+      width: 1.5px;
+      height: 100vh;
+      margin-left: -0.75px;
+      background: rgba(140, 200, 235, .7);
+      opacity: .72;
+      pointer-events: none;
+      z-index: 0;
+      border-radius: 1px;
+      box-shadow: 0 0 8px rgba(120, 200, 240, .4);
+    }
+    .silk-up::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 5px;
+      height: 5px;
+      margin: -2px 0 0 -2.5px;
+      border-radius: 50%;
+      background: rgba(190, 230, 255, .95);
+      opacity: .95;
+      box-shadow: 0 0 10px rgba(140, 210, 250, .55);
+    }
+
+    .mascot {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter:
+        drop-shadow(0 14px 28px rgba(0, 10, 30, .55))
+        drop-shadow(0 4px 12px rgba(0, 140, 220, .35))
+        brightness(1.12) hue-rotate(145deg) saturate(1.05);
+      overflow: visible;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    .logo {
+      height: 94px;
+      width: auto;
+      max-width: min(540px, 72vw);
+      overflow: visible;
+      filter: drop-shadow(0 8px 20px rgba(0, 10, 30, .5)) saturate(1.05) brightness(1.12);
+      opacity: 1;
+    }
+
+    .tagline {
+      margin: -8px 0 32px;
+      color: var(--muted);
+      font-size: 17px;
+      font-weight: 500;
+      letter-spacing: .25px;
+      text-align: center;
+      animation: brandIn .7s .12s ease both;
+      text-shadow: 0 1px 10px rgba(0, 8, 24, .65);
+      opacity: 1;
+    }
+
+    /* —— Search (URL) —— */
+    .search-wrap {
+      width: min(700px, 100%);
+      animation: brandIn .7s .22s ease both;
+    }
+
+    .search {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      width: 100%;
+      height: 72px;
+      padding: 0 12px 0 22px;
+      background: rgba(14, 32, 64, .42);
+      backdrop-filter: blur(18px) saturate(1.35);
+      -webkit-backdrop-filter: blur(18px) saturate(1.35);
+      border: 1.5px solid rgba(170, 215, 245, .42);
+      border-radius: 30px;
+      box-shadow:
+        0 16px 40px rgba(0, 6, 20, .48),
+        0 6px 0 rgba(0, 35, 65, .4),
+        0 2px 0 rgba(0, 60, 100, .28),
+        inset 0 1px 0 rgba(220, 240, 255, .4),
+        inset 0 -1px 0 rgba(0, 40, 70, .2);
+      transition: box-shadow .2s, border-color .2s, background .2s, transform .15s;
+    }
+
+    .search:hover {
+      background: rgba(18, 40, 74, .52);
+      border-color: rgba(180, 225, 250, .55);
+      box-shadow:
+        0 18px 46px rgba(0, 6, 20, .52),
+        0 7px 0 rgba(0, 40, 70, .45),
+        0 3px 0 rgba(0, 70, 110, .28),
+        inset 0 1px 0 rgba(230, 245, 255, .5),
+        inset 0 -1px 0 rgba(0, 40, 70, .22);
+      transform: translateY(-2px);
+    }
+
+    .search:focus-within {
+      border-color: rgba(160, 220, 255, .7);
+      background: rgba(20, 46, 82, .58);
+      box-shadow:
+        0 0 0 3px rgba(100, 190, 240, .22),
+        0 18px 46px rgba(0, 6, 20, .52),
+        0 7px 0 rgba(0, 40, 70, .45),
+        inset 0 1px 0 rgba(230, 245, 255, .55);
+    }
+
+    .search-ico {
+      flex: none;
+      color: var(--iron-light);
+      display: flex;
+      opacity: 1;
+    }
+
+    .search input {
+      flex: 1;
+      min-width: 0;
+      border: none;
+      outline: none;
+      background: transparent;
+      font: inherit;
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .search input::placeholder {
+      color: rgba(168, 194, 212, .85);
+      font-weight: 400;
+    }
+
+    .scan-btn {
+      flex: none;
+      height: 52px;
+      padding: 0 32px;
+      border: 1.5px solid rgba(180, 225, 250, .5);
+      border-radius: 999px;
+      background: linear-gradient(
+        180deg,
+        rgba(200, 235, 255, .48) 0%,
+        rgba(90, 170, 220, .46) 42%,
+        rgba(30, 110, 170, .58) 100%
+      );
+      color: #F2FAFF;
+      font: 700 16px/1 "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      cursor: pointer;
+      letter-spacing: .45px;
+      backdrop-filter: blur(12px) saturate(1.3);
+      -webkit-backdrop-filter: blur(12px) saturate(1.3);
+      box-shadow:
+        0 6px 0 rgba(0, 50, 85, .55),
+        0 14px 32px rgba(0, 40, 90, .45),
+        0 2px 0 rgba(0, 80, 130, .35),
+        inset 0 1px 0 rgba(240, 250, 255, .55),
+        inset 0 -2px 6px rgba(0, 40, 80, .25);
+      transition: background .15s, transform .12s, box-shadow .15s, color .15s, border-color .15s;
+    }
+
+    .scan-btn:hover {
+      background: linear-gradient(
+        180deg,
+        rgba(220, 245, 255, .62) 0%,
+        rgba(110, 190, 235, .58) 42%,
+        rgba(40, 130, 190, .68) 100%
+      );
+      border-color: rgba(200, 235, 255, .7);
+      color: #FFFFFF;
+      box-shadow:
+        0 7px 0 rgba(0, 50, 85, .6),
+        0 18px 36px rgba(0, 40, 90, .52),
+        0 3px 0 rgba(0, 90, 140, .4),
+        inset 0 1px 0 rgba(255, 255, 255, .65),
+        inset 0 -2px 6px rgba(0, 40, 80, .28);
+      transform: translateY(-3px);
+    }
+
+    .scan-btn:active {
+      transform: translateY(2px);
+      box-shadow:
+        0 2px 0 rgba(0, 40, 70, .45),
+        0 6px 16px rgba(0, 20, 50, .35),
+        inset 0 1px 0 rgba(200, 230, 255, .22),
+        inset 0 2px 6px rgba(0, 20, 40, .25);
+    }
+
+    .scan-btn:disabled {
+      opacity: .65; cursor: wait; transform: none;
+      box-shadow:
+        0 4px 0 rgba(0, 40, 70, .35),
+        0 10px 22px rgba(0, 20, 50, .3),
+        inset 0 1px 0 rgba(200, 230, 255, .2);
+    }
+
+    .hint {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 14px;
+      color: var(--muted);
+      text-shadow: 0 1px 8px rgba(0, 8, 24, .6);
+      opacity: 1;
+    }
+
+    .hint a {
+      color: var(--green-dark);
+      text-decoration: none;
+      opacity: 1;
+      font-weight: 600;
+    }
+    .hint a:hover { text-decoration: underline; }
+
+    .error {
+      margin-top: 12px;
+      text-align: center;
+      font-size: 14.5px;
+      color: var(--high);
+      min-height: 1.2em;
+      opacity: 0;
+      transition: opacity .2s;
+      text-shadow: 0 1px 8px rgba(0, 8, 24, .6);
+    }
+    .error.show { opacity: 1; }
+
+    /* Matrix rain on letter S */
+    .matrix-digits {
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 5px;
+      fill: #7ED4F0;
+      opacity: .8;
+    }
+
+    /* Eye glow pulse */
+    .eye-glow {
+      animation: eyePulse 2.4s ease-in-out infinite;
+    }
+    @keyframes eyePulse {
+      0%, 100% { opacity: .55; }
+      50% { opacity: 1; }
+    }
+
+    /* Leg micro-motion */
+    .leg-group {
+      transform-origin: 60px 54px;
+      animation: legWiggle 4s ease-in-out infinite;
+    }
+    @keyframes legWiggle {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(.8deg); }
+    }
+
+    footer {
+      margin-top: auto;
+      padding-top: 36px;
+      width: 100%;
+      text-align: center;
+      font-size: 13.5px;
+      color: var(--muted);
+      text-shadow: 0 1px 8px rgba(0, 8, 24, .6);
+      opacity: 1;
+    }
+
+    @media (max-width: 560px) {
+      .mascot-wrap { width: 110px; height: 124px; }
+      .logo { height: 62px; }
+      .brand { gap: 8px; margin-top: clamp(110px, 22vh, 220px); margin-bottom: 26px; }
+      .tagline { font-size: 15px; margin-bottom: 26px; }
+      .search { height: 58px; padding-left: 16px; }
+      .search input { font-size: 16px; }
+      .scan-btn { height: 46px; padding: 0 18px; font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="brand" role="img" aria-label="Spyvision">
+      <!-- Cyber spider hanging on a web -->
+      <div class="mascot-wrap">
+        <div class="silk-up" aria-hidden="true"></div>
+        <svg class="mascot" viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <defs>
+            <linearGradient id="metal" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#E8ECE9"/>
+              <stop offset="35%" stop-color="#A8B0AB"/>
+              <stop offset="70%" stop-color="#6E7771"/>
+              <stop offset="100%" stop-color="#3A433E"/>
+            </linearGradient>
+            <linearGradient id="metalDark" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#9AA39D"/>
+              <stop offset="100%" stop-color="#4A534E"/>
+            </linearGradient>
+            <pattern id="bodyMatrix" width="8" height="10" patternUnits="userSpaceOnUse">
+              <rect width="8" height="10" fill="#2A3330"/>
+              <text x="1" y="7" class="matrix-digits" fill="#6EBFD8" font-size="6">01</text>
+            </pattern>
+            <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="1.6" result="b"/>
+              <feMerge>
+                <feMergeNode in="b"/>
+                <feMergeNode in="SourceGraphic"/>
+              </feMerge>
+            </filter>
+            <radialGradient id="lensGrad" cx="40%" cy="35%" r="60%">
+              <stop offset="0%" stop-color="#C8DCE8" stop-opacity=".9"/>
+              <stop offset="60%" stop-color="#9CCFE6" stop-opacity=".55"/>
+              <stop offset="100%" stop-color="#5A9AB8" stop-opacity=".35"/>
+            </radialGradient>
+          </defs>
+
+          <!-- Hang web (behind spider) -->
+          <g fill="none" stroke="#858585" stroke-linecap="round" opacity=".72">
+            <!-- Anchor / outer frame threads -->
+            <path d="M65 4 L12 38 L20 118 L65 142 L110 118 L118 38 Z" stroke-width="1.1"/>
+            <path d="M65 4 L65 142" stroke-width=".9" opacity=".85"/>
+            <path d="M12 38 L118 38" stroke-width=".85"/>
+            <path d="M20 118 L110 118" stroke-width=".85"/>
+            <path d="M12 38 L110 118" stroke-width=".75"/>
+            <path d="M118 38 L20 118" stroke-width=".75"/>
+            <!-- Concentric web rings -->
+            <ellipse cx="65" cy="72" rx="14" ry="16" stroke-width=".85"/>
+            <ellipse cx="65" cy="72" rx="26" ry="30" stroke-width=".9"/>
+            <ellipse cx="65" cy="72" rx="38" ry="44" stroke-width=".95"/>
+            <ellipse cx="65" cy="72" rx="50" ry="58" stroke-width="1"/>
+            <!-- Radial spokes -->
+            <path d="M65 72 L65 4" stroke-width=".85"/>
+            <path d="M65 72 L118 38" stroke-width=".85"/>
+            <path d="M65 72 L110 118" stroke-width=".85"/>
+            <path d="M65 72 L65 142" stroke-width=".85"/>
+            <path d="M65 72 L20 118" stroke-width=".85"/>
+            <path d="M65 72 L12 38" stroke-width=".85"/>
+            <path d="M65 72 L40 18" stroke-width=".7" stroke="#B7B7B7"/>
+            <path d="M65 72 L90 18" stroke-width=".7" stroke="#B7B7B7"/>
+            <path d="M65 72 L122 72" stroke-width=".7" stroke="#B7B7B7"/>
+            <path d="M65 72 L8 72" stroke-width=".7" stroke="#B7B7B7"/>
+          </g>
+
+          <!-- Silk thread stub (continues upward via .silk-up outside SVG) -->
+          <line x1="65" y1="0" x2="65" y2="52" stroke="#858585" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="65" cy="4" r="2.2" fill="#858585"/>
+
+          <!-- Spider body (shifted down a bit under the thread) -->
+          <g transform="translate(5, 18)">
+            <!-- Legs -->
+            <g class="leg-group" fill="none" stroke="url(#metalDark)" stroke-width="3.2" stroke-linecap="round">
+              <path d="M48 48 C28 42, 18 28, 12 16"/>
+              <path d="M46 54 C24 54, 14 48, 6 40"/>
+              <path d="M46 62 C26 68, 16 78, 10 92"/>
+              <path d="M50 66 C34 78, 28 92, 24 104"/>
+              <path d="M72 48 C92 42, 102 28, 108 16"/>
+              <path d="M74 54 C96 54, 106 48, 114 40"/>
+              <path d="M74 62 C94 68, 104 78, 110 92"/>
+              <path d="M70 66 C86 78, 92 92, 96 104"/>
+            </g>
+            <!-- Leg joints -->
+            <g fill="#858585">
+              <circle cx="28" cy="36" r="2.2"/><circle cx="20" cy="50" r="2.2"/>
+              <circle cx="24" cy="74" r="2.2"/><circle cx="36" cy="84" r="2.2"/>
+              <circle cx="92" cy="36" r="2.2"/><circle cx="100" cy="50" r="2.2"/>
+              <circle cx="96" cy="74" r="2.2"/><circle cx="84" cy="84" r="2.2"/>
+            </g>
+
+            <!-- Abdomen -->
+            <ellipse cx="60" cy="72" rx="22" ry="26" fill="url(#metal)"/>
+            <ellipse cx="60" cy="72" rx="14" ry="18" fill="url(#bodyMatrix)" opacity=".85"/>
+            <ellipse cx="60" cy="72" rx="22" ry="26" fill="none" stroke="#5A635E" stroke-width="1.2"/>
+
+            <!-- Cephalothorax -->
+            <ellipse cx="60" cy="46" rx="18" ry="14" fill="url(#metal)"/>
+            <ellipse cx="60" cy="46" rx="18" ry="14" fill="none" stroke="#5A635E" stroke-width="1.2"/>
+            <rect x="50" y="40" width="20" height="10" rx="2" fill="url(#bodyMatrix)" opacity=".9"/>
+
+            <!-- Eyes -->
+            <g filter="url(#softGlow)">
+              <ellipse class="eye-glow" cx="53" cy="44" rx="4.2" ry="4.8" fill="#3E7A98"/>
+              <ellipse class="eye-glow" cx="67" cy="44" rx="4.2" ry="4.8" fill="#3E7A98"/>
+              <circle cx="53" cy="44" r="2.4" fill="#6EBFD8"/>
+              <circle cx="67" cy="44" r="2.4" fill="#6EBFD8"/>
+              <circle cx="53.8" cy="43" r=".8" fill="#A8C8DC"/>
+              <circle cx="67.8" cy="43" r=".8" fill="#A8C8DC"/>
+              <circle cx="46" cy="48" r="1.6" fill="#5A9AB8"/>
+              <circle cx="74" cy="48" r="1.6" fill="#5A9AB8"/>
+              <circle cx="50" cy="38" r="1.3" fill="#5A9AB8"/>
+              <circle cx="70" cy="38" r="1.3" fill="#5A9AB8"/>
+            </g>
+
+            <!-- Pedipalps -->
+            <path d="M52 54 Q48 60 50 66" fill="none" stroke="url(#metalDark)" stroke-width="2.4" stroke-linecap="round"/>
+            <path d="M68 54 Q72 60 70 66" fill="none" stroke="url(#metalDark)" stroke-width="2.4" stroke-linecap="round"/>
+
+            <!-- Magnifying glass -->
+            <g transform="translate(78,58) rotate(18)">
+              <line x1="14" y1="14" x2="28" y2="28" stroke="#5A635E" stroke-width="4" stroke-linecap="round"/>
+              <line x1="14" y1="14" x2="28" y2="28" stroke="#B7B7B7" stroke-width="2.2" stroke-linecap="round"/>
+              <circle cx="6" cy="6" r="12" fill="url(#lensGrad)" stroke="#6E7771" stroke-width="3"/>
+              <circle cx="6" cy="6" r="12" fill="none" stroke="#E8ECE9" stroke-width="1" opacity=".6"/>
+              <path d="M-2 -2 Q2 -6 8 -4" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".7"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Spyvision: even letter rhythm, O = compact lens -->
+      <svg class="logo" viewBox="0 0 300 78" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <pattern id="sMatrix" width="10" height="12" patternUnits="userSpaceOnUse">
+            <rect width="10" height="12" fill="#3E7A98"/>
+            <text x="1" y="9" fill="#6EBFD8" font-family="Consolas, monospace" font-size="8" opacity=".95">1</text>
+            <text x="5" y="5" fill="#9CCFE6" font-family="Consolas, monospace" font-size="6" opacity=".7">0</text>
+          </pattern>
+          <pattern id="vWeb" width="24" height="24" patternUnits="userSpaceOnUse">
+            <rect width="24" height="24" fill="#6A6A6A"/>
+            <g stroke="rgb(133,133,133)" stroke-width="1" fill="none">
+              <line x1="12" y1="0" x2="12" y2="24"/>
+              <line x1="0" y1="12" x2="24" y2="12"/>
+              <line x1="0" y1="0" x2="24" y2="24"/>
+              <line x1="24" y1="0" x2="0" y2="24"/>
+              <circle cx="12" cy="12" r="4.5"/>
+              <circle cx="12" cy="12" r="9"/>
+            </g>
+            <circle cx="12" cy="12" r="1.2" fill="rgb(133,133,133)"/>
+          </pattern>
+          <linearGradient id="letterGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stop-color="#5A9AB8"/>
+            <stop offset="100%" stop-color="#3E7A98"/>
+          </linearGradient>
+          <radialGradient id="logoLens" cx="38%" cy="32%" r="62%">
+            <stop offset="0%" stop-color="#C8DCE8" stop-opacity=".95"/>
+            <stop offset="55%" stop-color="#9CCFE6" stop-opacity=".5"/>
+            <stop offset="100%" stop-color="#5A9AB8" stop-opacity=".28"/>
+          </radialGradient>
+          <clipPath id="clipS">
+            <text x="0" y="58" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="58">S</text>
+          </clipPath>
+          <clipPath id="clipV">
+            <text x="98" y="58" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="58">V</text>
+          </clipPath>
+        </defs>
+
+        <g font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="58">
+          <!-- S @0 -->
+          <text x="0" y="58" fill="url(#sMatrix)">S</text>
+          <g clip-path="url(#clipS)">
+            <g class="matrix-rain">
+              <text x="4" y="12" fill="#9CCFE6" font-family="Consolas, monospace" font-size="8" font-weight="400" opacity=".9">1010</text>
+              <text x="6" y="22" fill="#6EBFD8" font-family="Consolas, monospace" font-size="8" font-weight="400">0101</text>
+              <text x="3" y="32" fill="#A8C8DC" font-family="Consolas, monospace" font-size="7" font-weight="400" opacity=".8">1100</text>
+              <text x="7" y="42" fill="#6EBFD8" font-family="Consolas, monospace" font-size="8" font-weight="400">0011</text>
+              <text x="4" y="52" fill="#9CCFE6" font-family="Consolas, monospace" font-size="7" font-weight="400">1010</text>
+              <text x="8" y="62" fill="#6EBFD8" font-family="Consolas, monospace" font-size="8" font-weight="400">0100</text>
+              <text x="3" y="72" fill="#9CCFE6" font-family="Consolas, monospace" font-size="7" font-weight="400">1110</text>
+            </g>
+          </g>
+          <text x="0" y="58" fill="none" stroke="#6EBFD8" stroke-width="1" opacity=".45">S</text>
+
+          <!-- p y @34 -->
+          <text x="34" y="58" fill="url(#letterGrad)" font-weight="750" letter-spacing="-2">py</text>
+
+          <!-- V @96 -->
+          <text x="98" y="58" fill="url(#vWeb)">V</text>
+          <g clip-path="url(#clipV)">
+            <g stroke="rgb(133,133,133)" stroke-width="1.05" fill="none">
+              <line x1="112" y1="14" x2="112" y2="66"/>
+              <line x1="96" y1="40" x2="136" y2="40"/>
+              <line x1="98" y1="18" x2="132" y2="64"/>
+              <line x1="132" y1="18" x2="98" y2="64"/>
+              <circle cx="112" cy="40" r="7"/>
+              <circle cx="112" cy="40" r="14"/>
+              <circle cx="112" cy="40" r="20"/>
+            </g>
+            <circle cx="112" cy="40" r="1.8" fill="rgb(133,133,133)"/>
+          </g>
+          <text x="98" y="58" fill="none" stroke="rgb(133,133,133)" stroke-width="1.2">V</text>
+
+          <!-- i s i @136 -->
+          <text x="136" y="58" fill="url(#letterGrad)" font-weight="750" letter-spacing="-1.5">isi</text>
+
+          <!-- O lens @198 — same optical width as a letter O -->
+          <g transform="translate(198, 13)">
+            <circle cx="20" cy="26" r="19.5" fill="url(#logoLens)" stroke="#3E7A98" stroke-width="5"/>
+            <circle cx="20" cy="26" r="19.5" fill="none" stroke="#5A9AB8" stroke-width="1.5"/>
+            <circle cx="20" cy="26" r="12.5" fill="none" stroke="#9CCFE6" stroke-width="1" opacity=".7"/>
+            <path d="M11 17 Q16 12 25 15" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".65"/>
+            <line x1="34" y1="39" x2="46" y2="52" stroke="#4A534E" stroke-width="5.5" stroke-linecap="round"/>
+            <line x1="34" y1="39" x2="46" y2="52" stroke="#858585" stroke-width="3.1" stroke-linecap="round"/>
+          </g>
+
+          <!-- n @246 — gap after lens matches other letters -->
+          <text x="246" y="58" fill="url(#letterGrad)" font-weight="750">n</text>
+        </g>
+      </svg>
+    </div>
+
+    <p class="tagline">Анализ URL на ошибки конфигурации и базовые уязвимости</p>
+
+    <form class="search-wrap" id="scanForm" action="#" method="get" autocomplete="off">
+      <div class="search">
+        <span class="search-ico" aria-hidden="true">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+            <path d="M16.5 16.5L21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <input
+          id="urlInput"
+          type="text"
+          name="url"
+          placeholder="Введите URL для сканирования"
+          spellcheck="false"
+          inputmode="url"
+          aria-label="URL для сканирования"
+        />
+        <button class="scan-btn" type="submit">Сканировать</button>
+      </div>
+      <p class="error" id="urlError" role="alert"></p>
+      <p class="hint">
+        Примеры:
+        <a href="#" data-url="https://example.com">https://example.com</a>
+        ·
+        <a href="#" data-url="127.0.0.1:8099">127.0.0.1:8099</a>
+      </p>
+    </form>
+
+    <footer>Spyvision · безопасные проверки без деструктивных действий</footer>
+  </main>
+
+  <script>
+    (function () {
+      var form = document.getElementById("scanForm");
+      var input = document.getElementById("urlInput");
+      var error = document.getElementById("urlError");
+      var button = form.querySelector(".scan-btn");
+
+      function showError(msg) {
+        error.style.color = "";
+        error.textContent = msg || "";
+        error.classList.toggle("show", !!msg);
+      }
+
+      function showOk(msg) {
+        error.style.color = "var(--green)";
+        error.textContent = msg;
+        error.classList.add("show");
+      }
+
+      function setBusy(busy) {
+        button.disabled = busy;
+        input.disabled = busy;
+        button.textContent = busy ? "Сканирование…" : "Сканировать";
+      }
+
+      function looksLikeUrl(value) {
+        var v = value.trim();
+        if (!v) return false;
+        if (/^https?:\/\//i.test(v)) return true;
+        if (/^[a-z0-9.-]+(?::\d{1,5})?(?:\/\S*)?$/i.test(v)) return true;
+        if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?(?:\/\S*)?$/.test(v)) return true;
+        if (/^\[[0-9a-f:]+\](?::\d{1,5})?(?:\/\S*)?$/i.test(v)) return true;
+        return false;
+      }
+
+      function isFilePage() {
+        return location.protocol === "file:";
+      }
+
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        var value = input.value.trim();
+        if (!value) {
+          showError("Введите адрес для сканирования");
+          input.focus();
+          return;
+        }
+        if (!looksLikeUrl(value)) {
+          showError("Похоже, это не URL. Пример: https://example.com");
+          input.focus();
+          return;
+        }
+        if (isFilePage()) {
+          showError("Откройте этот экран через локальный сервер: запустите python scan.py "
+            + "в терминале и перейдите по адресу из консоли (не через file://).");
+          return;
+        }
+        setBusy(true);
+        showOk("Идёт сканирование, это может занять несколько минут…");
+        fetch("/api/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: value })
+        })
+          .then(function (resp) {
+            return resp.json().then(function (data) {
+              return { ok: resp.ok, status: resp.status, data: data };
+            }).catch(function () {
+              return { ok: false, status: resp.status, data: { error: "Некорректный ответ сервера" } };
+            });
+          })
+          .then(function (result) {
+            if (result.ok && result.data && result.data.ok) {
+              var target = result.data.report_url || "/report.html";
+              showOk("Готово. Открываю отчёт…");
+              location.href = target;
+              return;
+            }
+            var msg = (result.data && result.data.error)
+              || ("Ошибка сканирования (HTTP " + result.status + ")");
+            showError(msg);
+            setBusy(false);
+          })
+          .catch(function () {
+            showError("Не удалось связаться с локальным сервером Spyvision. Запустите: python scan.py");
+            setBusy(false);
+          });
+      });
+
+      document.querySelectorAll("[data-url]").forEach(function (link) {
+        link.addEventListener("click", function (e) {
+          e.preventDefault();
+          input.value = link.getAttribute("data-url");
+          input.focus();
+          showError("");
+        });
+      });
+
+      var rain = document.querySelector(".matrix-rain");
+      if (rain) {
+        var y = 0;
+        setInterval(function () {
+          y = (y + 1) % 12;
+          rain.setAttribute("transform", "translate(0," + y + ")");
+        }, 120);
+      }
+
+      if (isFilePage()) {
+        showError("Для сканирования запустите python scan.py и откройте интерфейс по адресу из терминала.");
+      }
+    })();
+  </script>
+</body>
+</html>

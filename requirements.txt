@@ -1,3 +1,11 @@
 # Зависимости сканера (Python 3.8+)
 requests>=2.25.0
 beautifulsoup4>=4.9.0
+
+# Сборка Windows .exe (по желанию):
+#   python -m pip install pyinstaller
+#   build_exe.bat
+#
+# GigaChat («Как исправить» + диалог в отчёте):
+#   ключ прописывается в webscan/gigachat_fix.py → GIGACHAT_API_KEY
+#   отдельные пакеты не нужны (используется requests)
