@@ -1,27 +1,32 @@
 """HTTP-клиент сканера с жёсткими ограничениями выполнения.
 
-Ограничения (раздел 5 требований):
+Ограничения:
   * таймаут не более 5 секунд;
-  * общее число HTTP-запросов не более 400;
-  * обход сайта не более 40 страниц в пределах домена;
+  * общее число HTTP-запросов не более 600;
+  * обход сайта не более 60 страниц в пределах домена;
   * размер читаемого тела ответа не более 1 МБ;
   * принудительная пауза 0.5 с между запросами.
 """
 
 import time
+import warnings
 from http.cookies import SimpleCookie
 from typing import Dict, List, Optional, Tuple
 
 import requests
+import urllib3
 from requests.exceptions import RequestException
 
 from .models import CookieInfo
 
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+
 MAX_TIMEOUT = 5.0
 MIN_DELAY = 0.5
 MAX_BODY_BYTES = 1024 * 1024  # 1 МБ
-MAX_REQUESTS = 400  # жёсткий потолок общего числа HTTP-запросов за сканирование
-MAX_PAGES = 40  # жёсткий потолок числа страниц обхода в пределах домена
+MAX_REQUESTS = 600  # жёсткий потолок общего числа HTTP-запросов за сканирование
+MAX_PAGES = 60  # жёсткий потолок числа страниц обхода в пределах домена
 CHUNK_SIZE = 8192
 DEFAULT_USER_AGENT = (
     "BaumanSecScanner/1.0 (educational configuration scanner; "
@@ -97,16 +102,27 @@ class HttpClient:
             self.budget_exhausted = True
             return None
 
-        response = self._send(method, url, headers, data, allow_redirects, verify=self.verify_tls)
-        if response is None and self.verify_tls and _host(url) in self.tls_errors:
-            # Сертификат не прошёл проверку — повторяем без верификации,
-            # чтобы всё равно проанализировать конфигурацию сайта.
+        host = _host(url)
+        # Если TLS для хоста уже падал — сразу ходим без verify (без двойного запроса).
+        known_bad_tls = bool(self.verify_tls and host in self.tls_errors)
+        verify = False if known_bad_tls else self.verify_tls
+        response = self._send(method, url, headers, data, allow_redirects, verify=verify)
+
+        if (
+            response is None
+            and self.verify_tls
+            and not known_bad_tls
+            and host in self.tls_errors
+        ):
+            # Первая ошибка сертификата — один повтор без верификации.
             if not self.can_request(reserve):
                 self.budget_exhausted = True
                 return None
             response = self._send(method, url, headers, data, allow_redirects, verify=False)
             if response is not None:
                 self.insecure_requests += 1
+        elif response is not None and known_bad_tls:
+            self.insecure_requests += 1
 
         if response is None:
             return None

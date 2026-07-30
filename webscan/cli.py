@@ -21,14 +21,14 @@ DESCRIPTION = """
 
 EPILOG = """
 Примеры:
-  python scan.py                        (адрес будет запрошен в консоли)
+  python scan.py                        (главный экран Spyvision в браузере)
+  python scan.py --cli                  (адрес будет запрошен в консоли)
   python scan.py https://example.com
   python scan.py https://example.com --max-pages 10 --max-depth 1 --output otchet.html
   python scan.py http://127.0.0.1:8000 --no-active --verbose
 
-Если аргумент URL не указан, сканер спросит адрес интерактивно. В этом режиме
-можно вставить полный адрес со схемой, путём и параметрами (в том числе с
-символом &, который в PowerShell пришлось бы брать в кавычки).
+Без аргумента URL открывается локальный веб-интерфейс. Режим --cli спрашивает
+адрес в консоли (удобно вставлять полный URL с & без кавычек PowerShell).
 """
 
 
@@ -40,12 +40,18 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("url", nargs="?", default=None,
-                        help="URL целевого веб-приложения; если аргумент не указан, "
-                             "сканер запросит адрес в консоли")
+                        help="URL целевого веб-приложения; если не указан — "
+                             "открывается главный экран Spyvision (или ввод в консоли с --cli)")
+    parser.add_argument("--cli", action="store_true",
+                        help="спросить URL в консоли вместо веб-интерфейса")
+    parser.add_argument("--ui-port", type=int, default=0,
+                        help="порт локального интерфейса (0 — выбрать автоматически)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="не открывать браузер при старте веб-интерфейса")
     parser.add_argument("--max-pages", type=int, default=MAX_PAGES,
                         help=f"максимальное число страниц обхода (по умолчанию и максимум {MAX_PAGES})")
-    parser.add_argument("--max-depth", type=int, default=2,
-                        help="максимальная глубина обхода (по умолчанию 2)")
+    parser.add_argument("--max-depth", type=int, default=3,
+                        help="максимальная глубина обхода (по умолчанию 3)")
     parser.add_argument("--output", default="report.html",
                         help="путь к файлу отчёта (по умолчанию report.html)")
     parser.add_argument("--max-requests", type=int, default=MAX_REQUESTS,
@@ -56,6 +62,9 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"пауза между запросами в секундах (минимум {MIN_DELAY})")
     parser.add_argument("--no-active", action="store_true",
                         help="выполнить только проверки конфигурации, без активных тестов")
+    parser.add_argument("--no-gigachat", action="store_true",
+                        help="не вызывать GigaChat для текстов «Как исправить» "
+                             "(диалог в отчёте через UI остаётся доступным при наличии ключа)")
     parser.add_argument("--no-post-forms", action="store_true",
                         help="не отправлять тестовые значения в POST-формы")
     parser.add_argument("--insecure", action="store_true",
@@ -152,19 +161,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.url is None:
-        target_url = ask_url()
-        if target_url is None:
-            print("Сканирование отменено: адрес не указан.", file=sys.stderr)
-            return 2
-        args.url = target_url
-
     if args.max_pages < 1:
         parser.error("--max-pages должен быть не меньше 1")
     if args.max_depth < 0:
         parser.error("--max-depth не может быть отрицательным")
     if args.max_requests < 1:
         parser.error("--max-requests должен быть не меньше 1")
+    if args.ui_port < 0 or args.ui_port > 65535:
+        parser.error("--ui-port должен быть в диапазоне 0..65535")
 
     max_requests = min(args.max_requests, MAX_REQUESTS)
     max_pages = min(args.max_pages, MAX_PAGES)
@@ -180,6 +184,32 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.delay < MIN_DELAY:
         print(f"Внимание: пауза между запросами увеличена до {MIN_DELAY} с.")
 
+    # Без URL: веб-интерфейс (по умолчанию) или интерактивный ввод (--cli)
+    if args.url is None and not args.cli:
+        from .ui_server import serve_ui  # noqa: WPS433 — избегаем циклического импорта
+        return serve_ui(
+            max_pages=max_pages,
+            max_depth=args.max_depth,
+            output=args.output,
+            max_requests=max_requests,
+            timeout=timeout,
+            delay=delay,
+            verify_tls=not args.insecure,
+            active=not args.no_active,
+            test_post_forms=not args.no_post_forms,
+            verbose=args.verbose,
+            use_gigachat=not args.no_gigachat,
+            port=args.ui_port,
+            open_browser=not args.no_browser,
+        )
+
+    if args.url is None:
+        target_url = ask_url()
+        if target_url is None:
+            print("Сканирование отменено: адрес не указан.", file=sys.stderr)
+            return 2
+        args.url = target_url
+
     target = normalize_target(sanitize_url(args.url))
     config = ScanConfig(
         url=target,
@@ -193,6 +223,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         active=not args.no_active,
         test_post_forms=not args.no_post_forms,
         verbose=args.verbose,
+        use_gigachat=not args.no_gigachat,
     )
 
     print("=" * 72)

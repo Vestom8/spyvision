@@ -1,8 +1,9 @@
 """Базовые структуры данных сканера: находки, страницы, формы."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from .fixes import steps_for
 from .knowledge import describe
 
 # --- Уровни критичности ---------------------------------------------------
@@ -43,6 +44,7 @@ class Finding:
     threat_type: str = ""
     impact: str = ""
     detection: str = ""
+    fix_steps: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         info = describe(self.kind)
@@ -52,6 +54,8 @@ class Finding:
         if not self.threat_type:
             self.threat_type = ("Ошибка конфигурации" if self.category == CONFIG
                                 else "Уязвимость приложения")
+        if not self.fix_steps:
+            self.fix_steps = steps_for(self.kind, self.recommendation)
 
     @property
     def dedup_key(self) -> Tuple[str, str, str]:
@@ -160,6 +164,8 @@ class Page:
     truncated: bool = False
     forms: List[Form] = field(default_factory=list)
     links: List[str] = field(default_factory=list)
+    # Кэш BeautifulSoup после обхода — чтобы checks не парсили HTML повторно.
+    soup: Optional[Any] = field(default=None, repr=False, compare=False)
 
     @property
     def is_https(self) -> bool:

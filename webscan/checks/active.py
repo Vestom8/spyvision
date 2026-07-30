@@ -18,7 +18,17 @@ from ..utils import build_url, describe_request, query_params, snippet, truncate
 
 MARKER = "BAUMAN_TEST_92841"
 XSS_PAYLOAD = f"{MARKER}\"'><x-{MARKER}>"
+# Дополнительные DAST-маркеры (без эксплуатации — только отражение/ошибки)
+XSS_PAYLOADS_EXTRA = (
+    f"<img src=x onerror=alert('{MARKER}')>",
+    f"<svg/onload=confirm('{MARKER}')>",
+    f"\"'><script>/*{MARKER}*/</script>",
+)
 SQLI_PAYLOADS = ("'", "\"", "\\")
+SQLI_PAYLOADS_EXTRA = (
+    f"' OR '{MARKER}'='{MARKER}",
+    f"1' AND '{MARKER}'='{MARKER}",
+)
 REDIRECT_PAYLOAD = "https://evil.com"
 REDIRECT_HOST = "evil.com"
 BASELINE_VALUE = "BAUMAN_BASE_1"
@@ -57,10 +67,13 @@ CMD_ERROR_MARKERS = (
 )
 
 # Сколько точек внедрения проверять дополнительными (более дорогими) тестами
-EXTRA_TARGET_LIMIT = 8
+EXTRA_TARGET_LIMIT = 20
+DEEP_TARGET_LIMIT = 8
 
 REDIRECT_PARAM_HINTS = ("url", "redirect", "next", "return", "continue", "dest", "destination",
-                        "target", "goto", "redir", "callback", "back", "link")
+                        "target", "goto", "redir", "callback", "back", "link", "returnUrl",
+                        "return_url", "redirect_uri", "redirect_url", "go", "out", "view",
+                        "forward", "rurl")
 
 # Формы, отправка которых может изменить состояние приложения, активно не тестируются.
 DESTRUCTIVE_HINTS = ("delete", "remove", "drop", "destroy", "logout", "signout", "unsubscribe",
@@ -212,6 +225,7 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
     # Очередь задач: сначала самые результативные проверки для всех точек,
     # затем более дорогие — для ограниченного числа точек.
     extra = targets[:EXTRA_TARGET_LIMIT]
+    deep = targets[:DEEP_TARGET_LIMIT]
     tasks: List[Tuple[str, Target, str]] = []
     tasks += [("xss", t, XSS_PAYLOAD) for t in targets]
     tasks += [("sqli", t, SQLI_PAYLOADS[0]) for t in targets]
@@ -224,13 +238,21 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
     tasks += [("crlf", t, CRLF_PLACEHOLDER) for t in extra if t.method == "GET"]
     for payload in SQLI_PAYLOADS[1:]:
         tasks += [("sqli", t, payload) for t in targets]
+    # Углублённый DAST: альтернативные XSS/SQLi-маркеры на ограниченном наборе точек
+    for payload in XSS_PAYLOADS_EXTRA:
+        tasks += [("xss", t, payload) for t in deep]
+    for payload in SQLI_PAYLOADS_EXTRA:
+        tasks += [("sqli", t, payload) for t in deep]
 
     reported_sqli = set()
+    reported_xss = set()
     reported_extra = set()
     for kind, target, payload in tasks:
         if not client.can_request(reserve):
             break
         target_key = (target.method, target.action, target.param_name)
+        if kind == "xss" and target_key in reported_xss:
+            continue
         if kind == "sqli":
             # Одной находки на параметр достаточно: остальные payload'ы
             # только расходовали бы лимит запросов.
@@ -256,7 +278,10 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
         tested_targets.add(target_key)
 
         if kind == "xss":
-            result.findings.extend(_analyze_xss(target, response, url, data))
+            xss_findings = _analyze_xss(target, response, url, data, payload=payload)
+            if xss_findings:
+                reported_xss.add(target_key)
+            result.findings.extend(xss_findings)
         elif kind == "sqli":
             sqli_findings = _analyze_sqli(target, response, url, data, payload)
             if sqli_findings:
@@ -290,7 +315,8 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
 
 
 # --- отражённый XSS -------------------------------------------------------
-def _analyze_xss(target: Target, response, url: str, data) -> List[Finding]:
+def _analyze_xss(target: Target, response, url: str, data,
+                 payload: str = XSS_PAYLOAD) -> List[Finding]:
     body = _text(response)
     if not body or MARKER not in body:
         return []
@@ -298,7 +324,14 @@ def _analyze_xss(target: Target, response, url: str, data) -> List[Finding]:
     is_html = "html" in content_type or (not content_type and "<html" in body.lower())
     request_text = describe_request(target.method, url, data)
 
-    raw_reflected = XSS_PAYLOAD in body or f"<x-{MARKER}>" in body
+    raw_reflected = (
+        payload in body
+        or XSS_PAYLOAD in body
+        or f"<x-{MARKER}>" in body
+        or f"onerror=alert('{MARKER}')" in body
+        or f"onload=confirm('{MARKER}')" in body
+        or f"<script>/*{MARKER}*/</script>" in body
+    )
     quote_reflected = f"{MARKER}\"" in body or f"{MARKER}'" in body
     context = _reflection_context(body)
 

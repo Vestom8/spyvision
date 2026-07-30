@@ -83,7 +83,8 @@ def check_client_side(page: Page) -> List[Finding]:
         return findings
 
     request_text = f"GET {page.url}"
-    soup = BeautifulSoup(body, "html.parser")
+    soup = page.soup if page.soup is not None else BeautifulSoup(body, "html.parser")
+    page.soup = soup
 
     def add(title, severity, recommendation, evidence, kind, category=CONFIG,
             confidence=CONFIRMED):

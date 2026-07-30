@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple
 
+from .checks import access_control as access_control_check
 from .checks import active as active_checks
 from .checks import clientside as clientside_check
 from .checks import cookies as cookies_check
@@ -13,7 +14,9 @@ from .checks import forms as forms_check
 from .checks import headers as headers_check
 from .checks import infoleak as infoleak_check
 from .checks import methods as methods_check
+from .checks import sast as sast_check
 from .checks import tls as tls_check
+from .checks import waf_bypass as waf_bypass_check
 from .crawler import crawl
 from .http_client import MAX_PAGES, MAX_REQUESTS, HttpClient
 from .models import CONFIG, CONFIRMED, HIGH, INFO, Finding, FindingList
@@ -24,7 +27,7 @@ from .utils import host_of, is_valid_host, normalize_url, origin_of, query_param
 class ScanConfig:
     url: str
     max_pages: int = MAX_PAGES
-    max_depth: int = 2
+    max_depth: int = 3
     output: str = "report.html"
     max_requests: int = MAX_REQUESTS
     timeout: float = 5.0
@@ -33,6 +36,7 @@ class ScanConfig:
     active: bool = True
     test_post_forms: bool = True
     verbose: bool = False
+    use_gigachat: bool = True
 
 
 @dataclass
@@ -63,11 +67,11 @@ def run_scan(config: ScanConfig) -> ScanResult:
     checks_list: List[Tuple[str, str]] = []
     checks_done = 0
 
-    crawl_reserve = int(config.max_requests * 0.35)
-    site_reserve = int(config.max_requests * 0.15) if config.active else 0
+    crawl_reserve = int(config.max_requests * 0.30)
+    site_reserve = int(config.max_requests * 0.18) if config.active else 0
 
     # --- Этап 1: обход сайта ---------------------------------------------
-    _say(config, f"[1/4] Обход сайта: {target}")
+    _say(config, f"[1/5] Обход сайта: {target}")
     pages, external_links = crawl(
         client, target, max_pages=config.max_pages, max_depth=config.max_depth,
         reserve=crawl_reserve, verbose=config.verbose,
@@ -97,8 +101,8 @@ def run_scan(config: ScanConfig) -> ScanResult:
         return _finish(config, client, findings, pages, external_links, notes, checks_list,
                        checks_done, active_tests=0, started=started, target=target)
 
-    # --- Этап 2: пассивные проверки конфигурации и содержимого -----------
-    _say(config, f"[2/4] Проверка заголовков, cookies, форм и содержимого ({len(pages)} стр.)")
+    # --- Этап 2: пассивные проверки + SAST по загруженному коду -----------
+    _say(config, f"[2/5] Проверка заголовков, cookies, форм, SAST по HTML/JS ({len(pages)} стр.)")
     for page in pages:
         findings.extend(headers_check.check_headers(page))
         findings.extend(cookies_check.check_cookies(page))
@@ -107,7 +111,8 @@ def run_scan(config: ScanConfig) -> ScanResult:
         findings.extend(infoleak_check.check_info_leak(page))
         findings.extend(clientside_check.check_client_side(page))
         findings.extend(exposed_check.check_directory_listing(page.url, page.body))
-        checks_done += 8
+        findings.extend(sast_check.check_sast(page))
+        checks_done += 9
         if page.truncated:
             notes.append(f"Ответ страницы {page.url} обрезан по лимиту 1 МБ — анализировалась "
                          "только загруженная часть.")
@@ -126,9 +131,11 @@ def run_scan(config: ScanConfig) -> ScanResult:
                             "ws:// на защищённой странице, обработчики событий в разметке",
                             f"{len(pages)} стр."))
         checks_list.append(("Листинг каталогов", f"{len(pages)} стр."))
+        checks_list.append(("SAST по HTML/JS: eval, innerHTML, секреты, debug, source maps",
+                            f"{len(pages)} стр."))
 
-    # --- Этап 3: проверки уровня сайта -----------------------------------
-    _say(config, "[3/4] Проверка HTTPS/TLS, CORS, методов и служебных ресурсов")
+    # --- Этап 3: проверки уровня сайта + служебные файлы -------------------
+    _say(config, "[3/5] HTTPS/TLS, CORS, методы, служебные файлы (.git, .env, бэкапы, тесты)")
     findings.extend(tls_check.check_https_and_tls(client, target, reserve=site_reserve))
     checks_list.append(("HTTPS, редирект с HTTP, сертификат TLS", origin_of(target)))
     checks_done += 3
@@ -144,18 +151,42 @@ def run_scan(config: ScanConfig) -> ScanResult:
 
     exposed_findings = exposed_check.check_exposed_paths(client, target, reserve=site_reserve)
     findings.extend(exposed_findings)
-    checks_list.append((f"Открытые служебные ресурсы ({len(exposed_check.SENSITIVE_PATHS)} путей)",
-                        origin_of(target)))
+    checks_list.append((
+        f"Служебные файлы и тестовые страницы ({len(exposed_check.SENSITIVE_PATHS)} путей: "
+        ".git, .env, бэкапы, phpinfo, /test, /staging…)",
+        origin_of(target),
+    ))
     checks_done += len(exposed_check.SENSITIVE_PATHS)
 
     findings.extend(exposed_check.check_robots(client, target, reserve=site_reserve))
     checks_list.append(("Служебные разделы в robots.txt", origin_of(target)))
     checks_done += 1
 
-    # --- Этап 4: активные проверки уязвимостей ---------------------------
+    # --- Этап 4: Broken Access Control -----------------------------------
+    _say(config, f"[4/5] Broken Access Control (админ-разделы, IDOR, обход 403); "
+                 f"доступно запросов: {client.remaining}")
+    bac_findings = access_control_check.check_broken_access_control(
+        client, target, pages, reserve=site_reserve,
+    )
+    findings.extend(bac_findings)
+    checks_list.append((
+        "Broken Access Control: админ/API без авторизации, IDOR по id, обход через заголовки",
+        origin_of(target),
+    ))
+    checks_done += max(1, len(bac_findings))
+
+    # --- Этап 5: DAST + WAF-bypass ---------------------------------------
     if config.active:
-        _say(config, f"[4/4] Активные проверки (XSS, SQL и NoSQL, редирект, шаблоны, чтение "
-                     f"файлов, команды ОС, CRLF); доступно запросов: {client.remaining}")
+        _say(config, f"[5/5] DAST (XSS/SQLi/LFI/SSTI/…) и WAF-bypass; "
+                     f"доступно запросов: {client.remaining}")
+        waf_findings = waf_bypass_check.run_waf_checks(
+            client, target, pages, reserve=0,
+        )
+        findings.extend(waf_findings)
+        checks_list.append(("Обнаружение WAF и попытки обхода фильтров (маркерные payload'ы)",
+                            origin_of(target)))
+        checks_done += max(1, len(waf_findings))
+
         result = active_checks.run_active_checks(
             client, pages, reserve=0, test_post_forms=config.test_post_forms,
             verbose=config.verbose,
@@ -167,13 +198,13 @@ def run_scan(config: ScanConfig) -> ScanResult:
         active_scope = (f"{result.targets_tested} точек внедрения, "
                         f"{result.tests_executed} запросов")
         for check_name in (
-            "Отражённый XSS (маркер BAUMAN_TEST_92841), в том числе внутри <script>",
-            "Инъекции в SQL и NoSQL (', \", \\)",
-            "Открытый редирект",
-            "Инъекция в шаблон",
-            "Чтение файлов сервера",
-            "Выполнение команд ОС",
-            "Разделение заголовков (CRLF)",
+            "DAST: отражённый XSS (в т.ч. img/svg/script-маркеры)",
+            "DAST: инъекции SQL и NoSQL",
+            "DAST: открытый редирект",
+            "DAST: инъекция в шаблон (SSTI)",
+            "DAST: чтение файлов сервера (LFI)",
+            "DAST: выполнение команд ОС",
+            "DAST: разделение заголовков (CRLF)",
         ):
             checks_list.append((check_name, active_scope))
         if result.skipped_forms:
@@ -187,7 +218,7 @@ def run_scan(config: ScanConfig) -> ScanResult:
         active_tests = 0
         targets_tested = 0
         notes.append("Активные проверки уязвимостей отключены ключом --no-active: "
-                     "выполнены только проверки конфигурации.")
+                     "выполнены только проверки конфигурации (включая SAST и BAC).")
 
     return _finish(config, client, findings, pages, external_links, notes, checks_list,
                    checks_done, active_tests=active_tests, started=started, target=target,
@@ -224,6 +255,14 @@ def _finish(config: ScanConfig, client: HttpClient, findings: FindingList, pages
         for host, message in client.tls_errors.items():
             notes.append(f"Проверка сертификата для {host} не пройдена; запросы выполнялись "
                          f"без проверки TLS, чтобы продолжить анализ. Причина: {message[:200]}")
+
+    if config.use_gigachat:
+        try:
+            from .gigachat_fix import enrich_findings_with_gigachat
+
+            enrich_findings_with_gigachat(findings, enabled=True)
+        except Exception as exc:  # noqa: BLE001
+            notes.append(f"GigaChat недоступен для текстов «Как исправить»: {exc}")
 
     duration = round(time.monotonic() - started, 1)
     forms_found = sum(len(page.forms) for page in pages)

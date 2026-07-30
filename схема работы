@@ -100,7 +100,7 @@ scan.py / cli.py
 ### 4.4. Модель данных — `models.py`
 
 - `Finding` — одна проблема (`kind`, severity, evidence, recommendation…).  
-  В `__post_init__` подтягиваются тип угрозы, влияние и логика вывода из `knowledge.py`; готовый текст фикса — из `knowledge_fix.py` (если есть).
+  В `__post_init__` подтягиваются тип угрозы, влияние и логика вывода из `knowledge.py`; готовый текст фикса — из `fixes.py` (если есть).
 - `FindingList` — дедупликация и сортировка по критичности.
 - `Page`, `Form`, `CookieInfo` — то, что разобрал обходчик.
 
@@ -143,7 +143,7 @@ scan.py / cli.py
 |------|------|
 | `utils.py` | URL, хосты, same-origin, автоопределение http/https |
 | `knowledge.py` | Описания угроз по `kind` |
-| `knowledge_fix.py` | Готовые тексты «Как исправить» |
+| `fixes.py` | Готовые тексты «Как исправить» |
 | `tests/` | Учебный стенд + автотесты |
 | `build_exe.bat` | Сборка Windows `.exe` (PyInstaller) |
 | `tools/` | Вспомогательные скрипты (не часть рантайма скана) |
@@ -158,7 +158,7 @@ check_*(...) создаёт Finding(kind="...")
         ▼
 Finding.__post_init__
   ← knowledge.describe(kind)     # тип, влияние, логика
-  ← knowledge_fix (если есть)  # текст «Как исправить»
+  ← fixes (если есть)  # текст «Как исправить»
         │
         ▼
 FindingList.add(...)             # дедуп по (url, title, request)
@@ -234,7 +234,7 @@ report.build_report(...)         # карточка / строка таблиц�
 1. Какие аргументы принимает `check_*`?
 2. При каком условии создаётся `Finding`?
 3. Какие `kind` и `severity` выставляются?
-4. Найдите этот `kind` в `knowledge.py` / `knowledge_fix.py`.
+4. Найдите этот `kind` в `knowledge.py` / `fixes.py`.
 
 Затем просмотрите список вызовов в этапе 2–3 `scanner.py` и откройте соответствующие файлы в `checks/`.  
 `checks/active.py` читайте **последним**: там много сценариев, но идея та же — запрос с маркером → анализ ответа → `Finding`.
@@ -265,7 +265,7 @@ report.build_report(...)         # карточка / строка таблиц�
 | Лимиты запросов | `http_client.py` |
 | Почему не уходит на другой домен | `crawler.py` + `utils.same_host` |
 | Откуда текст «чем опасно» | `knowledge.py` |
-| Откуда «Как исправить» без ИИ | `knowledge_fix.py` |
+| Откуда «Как исправить» без ИИ | `fixes.py` |
 | Почему текст фикса «умный» | `gigachat_fix.py` |
 | Как рисуется диаграмма | `report.py` |
 | Как устроен дизайн лендинга | `webscan/landing.html` |

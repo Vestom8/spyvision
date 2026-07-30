@@ -156,6 +156,7 @@ class TestHeaderChecks(unittest.TestCase):
             "Referrer-Policy": "strict-origin-when-cross-origin",
             "Permissions-Policy": "geolocation=()",
             "Cross-Origin-Opener-Policy": "same-origin",
+            "Cross-Origin-Resource-Policy": "same-origin",
         })
         self.assertEqual([f.title for f in check_headers(page)], [])
 
@@ -340,6 +341,14 @@ class TestReport(unittest.TestCase):
         before, findings_section = html.split('id="findings"', 1)
         self.assertIn("Все категории", findings_section)
         self.assertIn("Все уровни", findings_section)
+        self.assertIn("Точность", findings_section)
+        self.assertIn("Подтверждено", findings_section)
+        self.assertIn("Подозрение", findings_section)
+        self.assertIn('data-value="attention"', findings_section)
+        self.assertIn('id="pdf-filtered-btn"', findings_section)
+        self.assertIn("Как исправить — по шагам", findings_section)
+        self.assertIn('class="fix-steps"', findings_section)
+        self.assertIn("Как проверить, что исправлено", findings_section)
         self.assertNotIn("Все категории", before)
 
     def test_single_expand_collapse_button(self):
@@ -423,8 +432,13 @@ class TestReport(unittest.TestCase):
         # подтверждённый High выделен красным
         self.assertIn('class="f-row critical"', html)
         self.assertIn("Подтверждённые угрозы высокого уровня", html)
-        # градиент на всю страницу, а не только в шапке
-        self.assertIn("linear-gradient(135deg, #FFFFFF 0%, var(--mint) 100%) fixed", html)
+        self.assertIn('data-severity-link="attention"', html)
+        self.assertIn('id="pdf-filtered-btn"', html)
+        self.assertIn('id="pdf-filtered"', html)
+        self.assertIn("printFiltered", html)
+        # фон отчёта — мягкий мятный градиент
+        self.assertIn("var(--bg-top)", html)
+        self.assertIn("radial-gradient(ellipse 90% 60% at 50% 0%", html)
 
     def test_report_explains_threat_and_logic(self):
         findings = FindingList()

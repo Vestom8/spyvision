@@ -362,7 +362,8 @@ def check_mixed_content(page: Page) -> List[Finding]:
     if not page.is_https or "html" not in page.content_type:
         return []
     try:
-        soup = BeautifulSoup(page.body, "html.parser")
+        soup = page.soup if page.soup is not None else BeautifulSoup(page.body, "html.parser")
+        page.soup = soup
     except Exception:
         return []
 

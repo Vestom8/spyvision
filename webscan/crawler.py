@@ -1,7 +1,9 @@
 """Обход веб-сайта в пределах одного домена (BFS) с сохранением страниц."""
 
 from collections import deque
+import re
 from typing import List, Optional, Tuple
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
@@ -11,6 +13,8 @@ from .utils import absolutize, is_http_url, looks_binary, normalize_url, same_ho
 
 TEXT_CONTENT_TYPES = ("text/", "application/json", "application/xml", "application/javascript",
                       "application/xhtml", "+json", "+xml")
+SITEMAP_LOC = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
+SITEMAP_LIMIT = 80
 
 
 def crawl(client: HttpClient, start_url: str, max_pages: int, max_depth: int,
@@ -21,6 +25,19 @@ def crawl(client: HttpClient, start_url: str, max_pages: int, max_depth: int,
     seen = {start}
     pages: List[Page] = []
     external_links: List[str] = []
+
+    # Подмешиваем адреса из sitemap.xml — так обход покрывает больше страниц,
+    # даже если с главной на них нет прямых ссылок.
+    for extra in _sitemap_seeds(client, start, reserve=reserve):
+        candidate = normalize_url(extra)
+        if not candidate or candidate in seen:
+            continue
+        if not same_host(candidate, start) or looks_binary(candidate):
+            continue
+        seen.add(candidate)
+        queue.append((candidate, 1))
+        if verbose:
+            print(f"      + sitemap {candidate}")
 
     while queue and len(pages) < max_pages:
         url, depth = queue.popleft()
@@ -81,6 +98,7 @@ def build_page(response, requested_url: str, depth: int) -> Page:
     if body and ("html" in content_type or not content_type):
         soup = parse_html(body)
         if soup is not None:
+            page.soup = soup
             page.links = extract_links(soup, page.url)
             page.forms = extract_forms(soup, page.url)
     return page
@@ -135,3 +153,34 @@ def extract_forms(soup: BeautifulSoup, base_url: str) -> List[Form]:
 
 def _is_texty(content_type: str) -> bool:
     return any(marker in content_type for marker in TEXT_CONTENT_TYPES)
+
+
+def _sitemap_seeds(client: HttpClient, start_url: str, reserve: int = 0) -> List[str]:
+    """Читает /sitemap.xml (и вложенные sitemap), возвращает список URL того же хоста."""
+    seeds: List[str] = []
+    queue = [urljoin(start_url, "/sitemap.xml")]
+    seen_maps = set()
+    while queue and len(seeds) < SITEMAP_LIMIT:
+        map_url = queue.pop(0)
+        if map_url in seen_maps or not client.can_request(reserve):
+            continue
+        seen_maps.add(map_url)
+        response = client.get(map_url, reserve=reserve, max_body_bytes=200_000)
+        if response is None or response.status_code != 200:
+            continue
+        try:
+            text = response.text or ""
+        except Exception:
+            continue
+        for match in SITEMAP_LOC.finditer(text):
+            loc = match.group(1).strip()
+            if not loc:
+                continue
+            if loc.lower().endswith(".xml") and "sitemap" in loc.lower():
+                if loc not in seen_maps and len(seen_maps) + len(queue) < 8:
+                    queue.append(loc)
+                continue
+            seeds.append(loc)
+            if len(seeds) >= SITEMAP_LIMIT:
+                break
+    return seeds

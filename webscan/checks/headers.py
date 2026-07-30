@@ -247,6 +247,16 @@ def check_headers(page: Page) -> List[Finding]:
             kind="coop_missing",
         )
 
+    if page.is_https and not _first(multi, "cross-origin-resource-policy"):
+        add(
+            "Отсутствует заголовок Cross-Origin-Resource-Policy",
+            LOW,
+            "Добавьте Cross-Origin-Resource-Policy: same-origin (или same-site), чтобы "
+            "сторонние сайты не могли незаметно подгружать ваши ресурсы.",
+            "Заголовок Cross-Origin-Resource-Policy не найден в ответе.",
+            kind="corp_missing",
+        )
+
     acao = _first(multi, "access-control-allow-origin")
     if acao:
         credentials = _first(multi, "access-control-allow-credentials").lower() == "true"

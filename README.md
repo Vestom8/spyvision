@@ -340,7 +340,7 @@ User-Agent HTTP-клиента: `BaumanSecScanner/1.0 (educational configuration
 При создании находки по полю `kind` подтягиваются:
 
 - из `webscan/knowledge.py` — тип угрозы, «чем опасно», «почему сканер так решил»;
-- из `webscan/knowledge_fix.py` — развёрнутый текст «как исправить» (если есть).
+- из `webscan/fixes.py` — развёрнутый текст «как исправить» (если есть).
 
 Дедупликация в списке: ключ `(url, title, request)`.
 
@@ -463,7 +463,7 @@ User-Agent HTTP-клиента: `BaumanSecScanner/1.0 (educational configuration
     ├── models.py                Finding, Page, Form, константы уровней
     ├── utils.py                 URL, хост, маскирование, TLS-probe
     ├── knowledge.py             тип угрозы / опасность / логика
-    ├── knowledge_fix.py         тексты «как исправить»
+    ├── fixes.py         тексты «как исправить»
     ├── report.py                HTML-отчёт (UI, фильтры, PDF, тема)
     ├── ui_server.py             локальный сервер Spyvision
     ├── landing.py               загрузка/запись лендинга (в т.ч. из exe)
@@ -522,7 +522,7 @@ User-Agent HTTP-клиента: `BaumanSecScanner/1.0 (educational configuration
 | Файл | Роль |
 |------|------|
 | `webscan/knowledge.py` | словарь `KNOWLEDGE` по ключу `kind`: тип угрозы (`threat_type`), текст опасности (`impact`), логика (`detection`) |
-| `webscan/knowledge_fix.py` | словарь `FIXES`: подробные рекомендации; в отчёте показываются кратко + «подробнее» |
+| `webscan/fixes.py` | словарь `FIXES`: подробные рекомендации; в отчёте показываются кратко + «подробнее» |
 
 Чтобы уточнить пояснение для вида находки, достаточно править соответствующий `kind` в этих файлах — код проверок менять не обязательно.
 
