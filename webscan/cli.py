@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from .http_client import MAX_PAGES, MAX_REQUESTS, MAX_TIMEOUT, MIN_DELAY
 from .models import HIGH, INFO, LOW, MEDIUM
-from .report import build_report
+from .report import build_report, ensure_report_bg
 from .scanner import ScanConfig, run_scan
 from .utils import host_of, is_valid_host, supports_tls
 
@@ -21,14 +21,15 @@ DESCRIPTION = """
 
 EPILOG = """
 Примеры:
-  python scan.py                        (адрес будет запрошен в консоли)
+  python scan.py                        (откроет главный экран Spyvision в браузере)
+  python scan.py --cli                  (спросить URL в консоли)
   python scan.py https://example.com
   python scan.py https://example.com --max-pages 10 --max-depth 1 --output otchet.html
   python scan.py http://127.0.0.1:8000 --no-active --verbose
 
-Если аргумент URL не указан, сканер спросит адрес интерактивно. В этом режиме
-можно вставить полный адрес со схемой, путём и параметрами (в том числе с
-символом &, который в PowerShell пришлось бы брать в кавычки).
+Без аргумента URL сканер сохраняет index.html (главный экран), поднимает локальный
+сервер и открывает браузер. Введите адрес на экране и нажмите «Сканировать» —
+откроется отчёт с диаграммой. Флаг --cli включает прежний ввод адреса в консоли.
 """
 
 
@@ -41,11 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("url", nargs="?", default=None,
                         help="URL целевого веб-приложения; если аргумент не указан, "
-                             "сканер запросит адрес в консоли")
+                             "открывается главный экран Spyvision в браузере")
+    parser.add_argument("--cli", action="store_true",
+                        help="спросить URL в консоли вместо веб-интерфейса "
+                             "(имеет смысл только без аргумента URL)")
     parser.add_argument("--max-pages", type=int, default=MAX_PAGES,
                         help=f"максимальное число страниц обхода (по умолчанию и максимум {MAX_PAGES})")
-    parser.add_argument("--max-depth", type=int, default=2,
-                        help="максимальная глубина обхода (по умолчанию 2)")
+    parser.add_argument("--max-depth", type=int, default=8,
+                        help="максимальная глубина обхода (по умолчанию 8)")
     parser.add_argument("--output", default="report.html",
                         help="путь к файлу отчёта (по умолчанию report.html)")
     parser.add_argument("--max-requests", type=int, default=MAX_REQUESTS,
@@ -63,6 +67,13 @@ def build_parser() -> argparse.ArgumentParser:
                              "(проверка сертификата всё равно выполняется и попадает в отчёт)")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="подробный вывод выполняемых запросов")
+    parser.add_argument("--no-gigachat", action="store_true",
+                        help="не генерировать «Как исправить» через GigaChat "
+                             "(оставить готовые тексты из базы знаний сканера)")
+    parser.add_argument("--ui-port", type=int, default=0,
+                        help="порт веб-интерфейса (0 = выбрать свободный)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="не открывать браузер автоматически в режиме UI")
     return parser
 
 
@@ -152,13 +163,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.url is None:
-        target_url = ask_url()
-        if target_url is None:
-            print("Сканирование отменено: адрес не указан.", file=sys.stderr)
-            return 2
-        args.url = target_url
-
     if args.max_pages < 1:
         parser.error("--max-pages должен быть не меньше 1")
     if args.max_depth < 0:
@@ -180,6 +184,36 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.delay < MIN_DELAY:
         print(f"Внимание: пауза между запросами увеличена до {MIN_DELAY} с.")
 
+    # Без URL — веб-интерфейс (если не запрошен --cli)
+    if args.url is None and not args.cli:
+        from .ui_server import UiConfig, serve_ui
+
+        work_dir = os.getcwd()
+        report_name = os.path.basename(args.output) or "report.html"
+        ui_cfg = UiConfig(
+            work_dir=work_dir,
+            landing_name="index.html",
+            report_name=report_name,
+            max_pages=max_pages,
+            max_depth=args.max_depth,
+            max_requests=max_requests,
+            timeout=timeout,
+            delay=delay,
+            verify_tls=not args.insecure,
+            active=not args.no_active,
+            test_post_forms=not args.no_post_forms,
+            verbose=args.verbose,
+            use_gigachat=not args.no_gigachat,
+        )
+        return serve_ui(ui_cfg, port=args.ui_port, open_browser=not args.no_browser)
+
+    if args.url is None:
+        target_url = ask_url()
+        if target_url is None:
+            print("Сканирование отменено: адрес не указан.", file=sys.stderr)
+            return 2
+        args.url = target_url
+
     target = normalize_target(sanitize_url(args.url))
     config = ScanConfig(
         url=target,
@@ -193,6 +227,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         active=not args.no_active,
         test_post_forms=not args.no_post_forms,
         verbose=args.verbose,
+        use_gigachat=not args.no_gigachat,
     )
 
     print("=" * 72)
@@ -218,6 +253,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             os.makedirs(directory, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as handle:
             handle.write(html)
+        ensure_report_bg(directory or os.getcwd())
     except OSError as exc:
         print(f"Не удалось сохранить отчёт: {exc}", file=sys.stderr)
         return 3

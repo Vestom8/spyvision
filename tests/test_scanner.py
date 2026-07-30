@@ -21,8 +21,8 @@ from webscan.checks.cookies import check_cookies
 from webscan.checks.headers import check_headers
 from webscan.checks.infoleak import check_info_leak
 from webscan.http_client import MAX_BODY_BYTES, MAX_TIMEOUT, MIN_DELAY, HttpClient
-from webscan.models import (CONFIG, CONFIRMED, HIGH, INFO, LOW, MEDIUM, CookieInfo, Finding,
-                            FindingList, Page, VULN)
+from webscan.models import (CONFIG, CONFIRMED, HIGH, INFO, LOW, MEDIUM, SUSPECTED, CookieInfo,
+                            Finding, FindingList, Page, VULN)
 from webscan.knowledge import KNOWLEDGE
 from webscan.report import build_report
 from webscan.scanner import ScanConfig, run_scan
@@ -118,6 +118,85 @@ class TestConsoleInput(unittest.TestCase):
     def test_ask_url_gives_up_after_attempts(self):
         result = ask_url(reader=lambda _prompt: "", attempts=2, detect_scheme=False)
         self.assertIsNone(result)
+
+
+class TestLandingUi(unittest.TestCase):
+    def test_landing_html_contains_spyvision_and_api(self):
+        from webscan.landing import landing_html
+        html = landing_html()
+        self.assertIn("Spyvision", html)
+        self.assertIn("Сканировать", html)
+        self.assertIn("/api/scan", html)
+        self.assertIn("urlInput", html)
+
+    def test_write_landing_creates_index(self):
+        from webscan.landing import write_landing
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "index.html")
+            saved = write_landing(path)
+            self.assertTrue(os.path.isfile(saved))
+            with open(saved, encoding="utf-8") as handle:
+                content = handle.read()
+            self.assertIn("Spyvision", content)
+            self.assertIn("/api/scan", content)
+
+    def test_validate_scan_url_rejects_empty_and_bad_scheme(self):
+        from webscan.ui_server import validate_scan_url
+        target, error = validate_scan_url("")
+        self.assertIsNone(target)
+        self.assertTrue(error)
+        target, error = validate_scan_url("ftp://example.com")
+        self.assertIsNone(target)
+        self.assertIn("http", error.lower())
+
+    def test_validate_scan_url_accepts_https(self):
+        from webscan.ui_server import validate_scan_url
+        target, error = validate_scan_url("https://example.com/path")
+        self.assertEqual(error, "")
+        self.assertEqual(target, "https://example.com/path")
+
+    def test_api_scan_rejects_bad_json_url(self):
+        from webscan.ui_server import UiConfig, make_handler
+        from http.server import ThreadingHTTPServer
+        import json
+        import urllib.request
+
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = UiConfig(work_dir=directory, max_pages=1, max_depth=0, max_requests=5,
+                           active=False, delay=0.5)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(cfg))
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                host, port = server.server_address[:2]
+                base = f"http://{host}:{port}"
+                # landing
+                with urllib.request.urlopen(base + "/") as resp:
+                    page = resp.read().decode("utf-8")
+                self.assertIn("Spyvision", page)
+                # bad url
+                req = urllib.request.Request(
+                    base + "/api/scan",
+                    data=json.dumps({"url": ""}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                try:
+                    urllib.request.urlopen(req)
+                    self.fail("expected HTTPError")
+                except urllib.error.HTTPError as exc:
+                    with exc:
+                        self.assertEqual(exc.code, 400)
+                        body = json.loads(exc.read().decode("utf-8"))
+                    self.assertFalse(body.get("ok"))
+                    self.assertTrue(body.get("error"))
+                # status
+                with urllib.request.urlopen(base + "/api/status") as resp:
+                    status = json.loads(resp.read().decode("utf-8"))
+                self.assertIn("scanning", status)
+            finally:
+                server.shutdown()
+                server.server_close()
 
 
 class TestLimits(unittest.TestCase):
@@ -321,6 +400,8 @@ class TestReport(unittest.TestCase):
         self.assertIn("Отчёт сканирования безопасности веб-приложения", header)
         self.assertIn("class=\"donut\"", header)
         self.assertIn("Общая статистика", header)
+        self.assertIn("class=\"help-menu\"", header)
+        self.assertIn('data-open="help"', header)
         # четыре категории легенды и общее число находок в центре
         for label in ("Высокая", "Средняя", "Низкая", "Безопасно"):
             self.assertIn(label, header)
@@ -331,16 +412,25 @@ class TestReport(unittest.TestCase):
         findings = FindingList()
         findings.add(Finding(url="https://a.test/", title="t", category=CONFIG, severity=HIGH,
                              recommendation="r"))
+        findings.add(Finding(url="https://a.test/", title="m", category=CONFIG, severity=MEDIUM,
+                             recommendation="r"))
         html = build_report(findings, {"target": "https://a.test/", "pages": 1, "checks": 1,
                                        "requests_made": 1, "max_requests": 200, "max_pages": 40,
                                        "max_depth": 2, "duration": 1.0, "page_list": []})
         # уровень опасности кликабелен и в диаграмме, и в блоке «Как читать отчёт»
         self.assertGreaterEqual(html.count('data-severity-link="High"'), 2)
+        self.assertIn('data-severity-link="attention"', html)
+        self.assertIn("severityFilter", html)
         # фильтр категорий находится внутри раздела «Найденные проблемы»
         before, findings_section = html.split('id="findings"', 1)
         self.assertIn("Все категории", findings_section)
         self.assertIn("Все уровни", findings_section)
         self.assertNotIn("Все категории", before)
+        self.assertIn("code-block full", html)
+        # HUD-тема отчёта: акцентный cyan, не старая светлая рамка
+        self.assertIn("--green:", html)
+        self.assertIn("var(--green-dark)", html)
+        self.assertIn("rgba(0, 212, 255", html)
 
     def test_single_expand_collapse_button(self):
         findings = FindingList()
@@ -382,17 +472,33 @@ class TestReport(unittest.TestCase):
                                        "targets_tested": 3, "error_count": 1,
                                        "external_count": 7, "https": True,
                                        "insecure_requests": 0})
-        for label in ("Что просканировано", "Что найдено", "Как выполнялось сканирование",
+        for label in ("Что просканировано", "Найденные проблемы", "Как выполнялось сканирование",
                       "Страниц проверено", "Форм на страницах", "Параметров в адресах",
                       "Требуют внимания", "Подтверждённые угрозы высокого уровня",
-                      "Запросов к сайту", "Активных тестов"):
+                      "Запросов к сайту", "Активных тестов", "Какие проверки выполнялись",
+                      "Длительность сканирования"):
             self.assertIn(label, html)
+        self.assertNotIn("Что найдено", html)
+        self.assertNotIn("Всего записей в отчёте", html)
+        self.assertNotIn("Разделы отчёта", html.split('id="drawer"', 1)[0])
+        self.assertIn('data-category-link="Уязвимость"', html)
+        self.assertIn('data-open="pages"', html)
+        self.assertIn("under-pdf", html)
+        header = html.split("</header>", 1)[0]
+        self.assertIn("Длительность сканирования", header)
+        self.assertIn("Какие проверки выполнялись", header)
         for removed in ("Ссылок на чужие сайты", "Глубина обхода",
                         "Запросов без проверки сертификата", "Требуют ручной проверки"):
             self.assertNotIn(removed, html)
         # «Подтверждено» как отдельная карточка статистики не показывается
         self.assertNotIn("Подтверждено</div>", html)
-        self.assertNotIn(">Подтверждено<", html.split("id=\"pdf-report\"")[0])
+        header = html.split("</header>", 1)[0]
+        self.assertNotIn(">Подтверждено<", header)
+        # в фильтрах таблицы подпись с заглавной — нормально
+        self.assertIn(">Подтверждено ", html)
+        self.assertIn("home-btn", html)
+        self.assertIn("pdf-filtered-btn", html)
+        self.assertIn("fix-more-btn", html)
 
     def test_side_drawer_and_pdf_export(self):
         findings = FindingList()
@@ -409,8 +515,12 @@ class TestReport(unittest.TestCase):
                                        "checks_list": [("Отражённый XSS", "1 точка")],
                                        "errors": [("https://a.test/x", "timeout")]})
         self.assertIn('id="drawer"', html)
-        self.assertIn("Разделы отчёта", html)
+        self.assertNotIn("Разделы отчёта", html.split('id="drawer"', 1)[0])
         self.assertIn("Скачать PDF", html)
+        self.assertIn("chart-pdf", html)
+        header = html.split("</header>", 1)[0]
+        self.assertIn("Скачать PDF", header)
+        self.assertNotIn("Подробности вынесены в боковую панель", html)
         self.assertIn('id="pdf-report"', html)
         pdf = html.split('id="pdf-report"', 1)[1]
         self.assertIn("самые опасные", pdf)
@@ -420,11 +530,19 @@ class TestReport(unittest.TestCase):
                         "Просканированные страницы", "Какие проверки выполнялись",
                         "Запросы, оставшиеся без ответа"):
             self.assertIn(section, html)
-        # подтверждённый High выделен красным
-        self.assertIn('class="f-row critical"', html)
+        # подтверждённый High выделен красным; таблица сгруппирована по виду ошибки
+        self.assertIn('class="g-row critical"', html)
+        self.assertIn("Вид ошибки", html)
+        self.assertIn('data-severity-link="critical"', html)
+        self.assertIn('class="f conf-f"', html)
+        self.assertIn("подтверждено", html)
+        self.assertIn("подозрение", html)
         self.assertIn("Подтверждённые угрозы высокого уровня", html)
-        # градиент на всю страницу, а не только в шапке
-        self.assertIn("linear-gradient(135deg, #FFFFFF 0%, var(--mint) 100%) fixed", html)
+        self.assertIn("toggleGroup", html)
+        self.assertIn("toggleInstance", html)
+        # фон на всю страницу (HUD: фото + затемняющий градиент), не только в шапке
+        self.assertIn('url("bg.jfif") center/cover fixed no-repeat', html)
+        self.assertIn("linear-gradient(160deg, rgba(5,10,27,.22)", html)
 
     def test_report_explains_threat_and_logic(self):
         findings = FindingList()
@@ -436,6 +554,28 @@ class TestReport(unittest.TestCase):
         self.assertIn("Чем это опасно", html)
         self.assertIn("Почему сканер так решил", html)
         self.assertIn("Внедрение кода в страницу (XSS)", html)
+
+    def test_findings_grouped_by_error_type(self):
+        findings = FindingList()
+        findings.add(Finding(url="https://a.test/a", title="HTTPS-версия сайта недоступна",
+                             category=CONFIG, severity=MEDIUM, recommendation="r",
+                             confidence=CONFIRMED))
+        findings.add(Finding(url="https://a.test/b", title="HTTPS-версия сайта недоступна",
+                             category=CONFIG, severity=MEDIUM, recommendation="r",
+                             confidence=SUSPECTED))
+        findings.add(Finding(url="https://a.test/c", title="Нет CSP", category=CONFIG,
+                             severity=LOW, recommendation="r", confidence=CONFIRMED))
+        html = build_report(findings, {"target": "https://a.test/", "pages": 1, "checks": 1,
+                                       "requests_made": 1, "max_requests": 400, "max_pages": 40,
+                                       "max_depth": 2, "duration": 1.0, "page_list": []})
+        self.assertEqual(html.count('class="g-row"'), 2)
+        self.assertIn("2 шт.", html)
+        self.assertIn("1 шт.", html)
+        self.assertIn('data-group="0"', html)
+        self.assertIn('data-value="подтверждено"', html)
+        self.assertIn('data-value="подозрение"', html)
+        self.assertIn("https://a.test/a", html)
+        self.assertIn("https://a.test/b", html)
 
 
 class TestKnowledge(unittest.TestCase):
@@ -456,6 +596,25 @@ class TestKnowledge(unittest.TestCase):
         for kind, entry in KNOWLEDGE.items():
             for field_name in ("type", "impact", "detection"):
                 self.assertTrue(entry.get(field_name), f"{kind}: не заполнено поле {field_name}")
+
+    def test_every_kind_has_detailed_fix(self):
+        from webscan.knowledge_fix import FIXES
+        from webscan.knowledge import describe
+        self.assertEqual(set(FIXES), set(KNOWLEDGE))
+        for kind in KNOWLEDGE:
+            fix = describe(kind).get("fix", "")
+            self.assertGreaterEqual(len(fix), 900, f"{kind}: слишком короткое «Как исправить»")
+            self.assertIn("\n\n", fix, f"{kind}: ожидаются абзацы")
+            self.assertIn("Шаг 1.", fix, f"{kind}: ожидаются нумерованные шаги")
+            self.assertIn("Шаг 2.", fix, f"{kind}: ожидаются нумерованные шаги")
+
+    def test_finding_uses_knowledge_fix(self):
+        finding = Finding(url="u", title="t", category=CONFIG, severity=MEDIUM,
+                          recommendation="коротко", kind="csp_missing")
+        self.assertNotEqual(finding.recommendation, "коротко")
+        self.assertIn("Content-Security-Policy", finding.recommendation)
+        self.assertIn("Шаг 1.", finding.recommendation)
+        self.assertGreater(len(finding.recommendation), 900)
 
     def test_every_kind_used_in_checks_is_described(self):
         """Каждый вид находки из кода проверок должен иметь пояснения в базе знаний."""

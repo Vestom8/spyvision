@@ -59,6 +59,19 @@ CMD_ERROR_MARKERS = (
 # Сколько точек внедрения проверять дополнительными (более дорогими) тестами
 EXTRA_TARGET_LIMIT = 8
 
+# Обход WAF / простых фильтров: альтернативные XSS и SQLi payloads
+WAF_XSS_PAYLOADS = (
+    f"<Svg/onload=confirm('{MARKER}')>",
+    f"\"><img src=x onerror=alert('{MARKER}')>",
+    f"<details/open/ontoggle=alert('{MARKER}')>",
+    f"<img src=x onerror=alert`{MARKER}`>",
+)
+WAF_SQLI_PAYLOADS = (
+    "'/**/OR/**/1=1--",
+    "'%09OR%091=1--",
+    "1'||'1",
+)
+
 REDIRECT_PARAM_HINTS = ("url", "redirect", "next", "return", "continue", "dest", "destination",
                         "target", "goto", "redir", "callback", "back", "link")
 
@@ -222,11 +235,20 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
     tasks += [("lfi", t, LFI_PAYLOADS[1][0]) for t in extra[:4]]
     tasks += [("cmd", t, CMD_PAYLOAD) for t in extra]
     tasks += [("crlf", t, CRLF_PLACEHOLDER) for t in extra if t.method == "GET"]
+    # дополнительные SQLi-payloads — только на extra-точках (экономия бюджета)
     for payload in SQLI_PAYLOADS[1:]:
-        tasks += [("sqli", t, payload) for t in targets]
+        tasks += [("sqli", t, payload) for t in extra]
+    # WAF-bypass: ограниченное число точек
+    waf_targets = targets[: min(3, EXTRA_TARGET_LIMIT)]
+    for payload in WAF_XSS_PAYLOADS[:3]:
+        tasks += [("xss_waf", t, payload) for t in waf_targets]
+    for payload in WAF_SQLI_PAYLOADS[:2]:
+        tasks += [("sqli_waf", t, payload) for t in waf_targets]
 
     reported_sqli = set()
+    reported_xss = set()
     reported_extra = set()
+    reported_waf = set()
     for kind, target, payload in tasks:
         if not client.can_request(reserve):
             break
@@ -239,6 +261,17 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
             if target.baseline_body is None and not _load_baseline(
                 client, target, baseline_cache, reserve
             ):
+                continue
+        if kind == "sqli_waf":
+            if target_key in reported_sqli or ("sqli_waf", target_key) in reported_waf:
+                continue
+            if target.baseline_body is None and not _load_baseline(
+                client, target, baseline_cache, reserve
+            ):
+                continue
+        if kind == "xss_waf":
+            # если классический XSS уже подтверждён — обход WAF здесь лишний
+            if target_key in reported_xss or ("xss_waf", target_key) in reported_waf:
                 continue
         if kind in ("ssti", "lfi", "crlf", "cmd") and (kind, target_key) in reported_extra:
             continue
@@ -256,12 +289,42 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
         tested_targets.add(target_key)
 
         if kind == "xss":
-            result.findings.extend(_analyze_xss(target, response, url, data))
+            xss_found = _analyze_xss(target, response, url, data)
+            if xss_found and any(f.kind != "xss_escaped" for f in xss_found):
+                reported_xss.add(target_key)
+            result.findings.extend(xss_found)
+        elif kind == "xss_waf":
+            found = _analyze_xss_waf(target, response, url, data, payload)
+            if found:
+                reported_waf.add(("xss_waf", target_key))
+                reported_xss.add(target_key)
+            result.findings.extend(found)
         elif kind == "sqli":
             sqli_findings = _analyze_sqli(target, response, url, data, payload)
             if sqli_findings:
                 reported_sqli.add(target_key)
             result.findings.extend(sqli_findings)
+        elif kind == "sqli_waf":
+            sqli_findings = _analyze_sqli(target, response, url, data, payload)
+            if sqli_findings:
+                reported_sqli.add(target_key)
+                reported_waf.add(("sqli_waf", target_key))
+                result.findings.extend([
+                    Finding(
+                        url=f.url,
+                        title=f"SQLi с обходом WAF/фильтра — {target.label()}",
+                        kind="sqli_waf_bypass",
+                        category=VULN,
+                        severity=f.severity,
+                        recommendation=f.recommendation,
+                        request=f.request,
+                        evidence=truncate(
+                            f"WAF-bypass payload: {payload}\n{f.evidence}", 1600
+                        ),
+                        confidence=f.confidence,
+                    )
+                    for f in sqli_findings
+                ])
         elif kind == "ssti":
             found = _analyze_ssti(target, response, url, data)
             if found:
@@ -319,8 +382,8 @@ def _analyze_xss(target: Target, response, url: str, data) -> List[Finding]:
                 evidence=truncate(
                     f"Ответ HTTP/{response.status_code}, Content-Type: {content_type or '-'}\n"
                     f"Тестовая строка вернулась внутри тега <script> с неэкранированными "
-                    f"спецсимволами:\n{snippet(body, MARKER, 160)}",
-                    900,
+                    f"спецсимволами:\n{snippet(body, MARKER, 320)}",
+                    1600,
                 ),
                 confidence=SUSPECTED,
             )
@@ -343,8 +406,8 @@ def _analyze_xss(target: Target, response, url: str, data) -> List[Finding]:
                     f"Ответ HTTP/{response.status_code}, Content-Type: {content_type or '-'}\n"
                     f"Контекст отражения: {context}\n"
                     f"Тестовая строка вернулась без HTML-экранирования:\n"
-                    f"{snippet(body, MARKER, 160)}",
-                    900,
+                    f"{snippet(body, MARKER, 320)}",
+                    1600,
                 ),
                 confidence=SUSPECTED,
             )
@@ -362,7 +425,7 @@ def _analyze_xss(target: Target, response, url: str, data) -> List[Finding]:
                                "Угловые скобки экранируются, но незакрытая кавычка позволяет "
                                "выйти из значения атрибута.",
                 request=request_text,
-                evidence=truncate(snippet(body, MARKER, 160), 700),
+                evidence=truncate(snippet(body, MARKER, 320), 1400),
                 confidence=SUSPECTED,
             )
         ]
@@ -379,11 +442,47 @@ def _analyze_xss(target: Target, response, url: str, data) -> List[Finding]:
                                "в HTML-сущности. Отдельно проверьте вывод в JavaScript и "
                                "обработчики событий.",
                 request=request_text,
-                evidence=truncate(snippet(body, MARKER, 120), 500),
+                evidence=truncate(snippet(body, MARKER, 240), 1000),
                 confidence=CONFIRMED,
             )
         ]
     return []
+
+
+def _analyze_xss_waf(target: Target, response, url: str, data, payload: str) -> List[Finding]:
+    """XSS через payload, рассчитанный на обход простых WAF/фильтров."""
+    body = _text(response)
+    if not body or MARKER not in body:
+        return []
+    if response.status_code in (403, 406, 419, 429):
+        return []
+    dangerous = (
+        ("onerror" in body.lower() and MARKER in body)
+        or ("onload" in body.lower() and MARKER in body)
+        or ("ontoggle" in body.lower() and MARKER in body)
+        or f"<Svg/onload=confirm('{MARKER}')>" in body
+        or f"<svg/onload=confirm('{MARKER}')>" in body.lower()
+    )
+    if not dangerous:
+        return []
+    return [
+        Finding(
+            url=target.page_url,
+            title=f"XSS с обходом WAF/фильтра: {target.label()}",
+            kind="xss_waf_bypass",
+            category=VULN,
+            severity=HIGH,
+            recommendation="Не полагайтесь только на WAF; экранируйте вывод контекстно, "
+                           "ужесточите CSP, обновляйте правила фильтрации.",
+            request=describe_request(target.method, url, data),
+            evidence=truncate(
+                f"WAF-bypass payload отразился с обработчиком события:\n"
+                f"payload={payload}\n{snippet(body, MARKER, 320)}",
+                1600,
+            ),
+            confidence=CONFIRMED,
+        )
+    ]
 
 
 def _reflection_context(body: str) -> str:
@@ -426,8 +525,8 @@ def _analyze_sqli(target: Target, response, url: str, data, payload: str) -> Lis
                         f"Отправлено значение параметра: {payload_view}\n"
                         f"Ответ HTTP/{response.status_code} (обычный ответ: {baseline_status})\n"
                         f"Сообщение об ошибке базы данных в ответе:\n"
-                        f"{snippet(body, match.group(0), 200)}",
-                        900,
+                        f"{snippet(body, match.group(0), 320)}",
+                        1600,
                     ),
                     confidence=SUSPECTED,
                 )
@@ -450,8 +549,8 @@ def _analyze_sqli(target: Target, response, url: str, data, payload: str) -> Lis
                     evidence=truncate(
                         f"Отправлено значение параметра: {payload_view}\n"
                         f"Ответ HTTP/{response.status_code} (обычный ответ: {baseline_status})\n"
-                        f"Сообщение об ошибке СУБД в ответе:\n{snippet(body, match.group(0), 200)}",
-                        900,
+                        f"Сообщение об ошибке СУБД в ответе:\n{snippet(body, match.group(0), 320)}",
+                        1600,
                     ),
                     confidence=SUSPECTED,
                 )
@@ -475,8 +574,8 @@ def _analyze_sqli(target: Target, response, url: str, data, payload: str) -> Lis
                     evidence=truncate(
                         f"Отправлено значение параметра: {payload_view}\n"
                         f"Статус изменился: {baseline_status} -> {response.status_code}\n"
-                        f"Фрагмент ответа:\n{truncate(body.strip(), 300)}",
-                        800,
+                        f"Фрагмент ответа:\n{truncate(body.strip(), 700)}",
+                        1400,
                     ),
                     confidence=SUSPECTED,
                 )

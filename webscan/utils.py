@@ -122,7 +122,7 @@ def truncate(text: str, limit: int = 400) -> str:
     return text[:limit] + f"… [обрезано, всего {len(text)} символов]"
 
 
-def snippet(text: str, needle: str, radius: int = 140) -> str:
+def snippet(text: str, needle: str, radius: int = 280) -> str:
     """Фрагмент текста вокруг первого вхождения needle."""
     if not text:
         return ""
@@ -157,12 +157,16 @@ def parse_max_age(directive_value: str) -> Optional[int]:
     return int(match.group(1)) if match else None
 
 
-def describe_request(method: str, url: str, data: Optional[Dict[str, str]] = None,
+def describe_request(method: str, url: str, data=None,
                      headers: Optional[Dict[str, str]] = None) -> str:
     """Человекочитаемое описание отправленного запроса для отчёта."""
     parts = [f"{method} {url}"]
     if headers:
         parts.extend(f"{k}: {v}" for k, v in headers.items())
     if data:
-        parts.append("body: " + urlencode(data))
+        if isinstance(data, dict):
+            parts.append("body: " + urlencode(data))
+        else:
+            text = data.decode("utf-8", errors="replace") if isinstance(data, (bytes, bytearray)) else str(data)
+            parts.append("body: " + truncate(text, 240))
     return "\n".join(parts)

@@ -48,17 +48,25 @@
       overflow: visible;
     }
 
-    /* —— Brand block (Google-style center stack) —— */
+    /* —— Brand block: logo centered, spider above V —— */
     .brand {
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 14px;
       margin-top: clamp(150px, 30vh, 340px);
       margin-bottom: 34px;
       animation: brandIn .7s ease both;
       position: relative;
       z-index: 2;
+      width: 100%;
+    }
+
+    .brand-mark {
+      position: relative;
+      display: inline-block;
+      max-width: min(620px, 78vw);
+      line-height: 0;
     }
 
     @keyframes brandIn {
@@ -67,12 +75,17 @@
     }
 
     .mascot-wrap {
-      position: relative;
-      flex: none;
-      width: 152px;
-      height: 170px;
+      position: absolute;
+      /* центр буквы V в viewBox логотипа: x=112 из 300 */
+      left: 37.333%;
+      bottom: 78%;
+      transform: translateX(-50%);
+      width: 132px;
+      height: 148px;
+      z-index: 3;
       animation: float 3.6s ease-in-out infinite;
       overflow: visible;
+      pointer-events: none;
     }
 
     /* Нить паутины от края окна вниз к пауку */
@@ -123,12 +136,14 @@
     }
 
     .logo {
-      height: 94px;
+      display: block;
+      height: 160px;
       width: auto;
-      max-width: min(540px, 72vw);
+      max-width: 100%;
       overflow: visible;
       filter: drop-shadow(0 8px 20px rgba(0, 10, 30, .5)) saturate(1.05) brightness(1.12);
       opacity: 1;
+      margin: 0 auto;
     }
 
     .tagline {
@@ -333,6 +348,39 @@
       0%, 100% { transform: rotate(0deg); }
       50% { transform: rotate(.8deg); }
     }
+    /* Передние свисающие лапки (после переворота — «вниз» к логотипу) */
+    .leg-front-l {
+      transform-origin: 48px 48px;
+      transform-box: view-box;
+      animation: hangLegL 1.7s ease-in-out infinite;
+    }
+    .leg-front-r {
+      transform-origin: 72px 48px;
+      transform-box: view-box;
+      animation: hangLegR 1.7s ease-in-out infinite;
+      animation-delay: .18s;
+    }
+    .leg-front-joint-l {
+      transform-origin: 48px 48px;
+      transform-box: view-box;
+      animation: hangLegL 1.7s ease-in-out infinite;
+    }
+    .leg-front-joint-r {
+      transform-origin: 72px 48px;
+      transform-box: view-box;
+      animation: hangLegR 1.7s ease-in-out infinite;
+      animation-delay: .18s;
+    }
+    @keyframes hangLegL {
+      0%, 100% { transform: rotate(0deg); }
+      40% { transform: rotate(-7deg); }
+      70% { transform: rotate(3deg); }
+    }
+    @keyframes hangLegR {
+      0%, 100% { transform: rotate(0deg); }
+      35% { transform: rotate(7deg); }
+      65% { transform: rotate(-3deg); }
+    }
 
     footer {
       margin-top: auto;
@@ -346,20 +394,204 @@
     }
 
     @media (max-width: 560px) {
-      .mascot-wrap { width: 110px; height: 124px; }
-      .logo { height: 62px; }
-      .brand { gap: 8px; margin-top: clamp(110px, 22vh, 220px); margin-bottom: 26px; }
+      .mascot-wrap { width: 96px; height: 108px; bottom: 76%; }
+      .logo { height: 112px; }
+      .brand { margin-top: clamp(110px, 22vh, 220px); margin-bottom: 26px; }
+      .brand-mark { max-width: min(420px, 82vw); }
       .tagline { font-size: 15px; margin-bottom: 26px; }
       .search { height: 58px; padding-left: 16px; }
       .search input { font-size: 16px; }
       .scan-btn { height: 46px; padding: 0 18px; font-size: 14px; }
     }
+
+    /* —— Loading screen while scanning —— */
+    .scan-loading {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background:
+        linear-gradient(165deg, rgba(3, 8, 20, .82) 0%, rgba(5, 14, 32, .78) 50%, rgba(2, 6, 16, .88) 100%),
+        url("bg.jfif") center/cover fixed no-repeat;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    .scan-loading.open {
+      display: flex;
+    }
+    .scan-loading-inner {
+      width: min(420px, 100%);
+      text-align: center;
+      animation: loadIn .45s ease both;
+    }
+    @keyframes loadIn {
+      from { opacity: 0; transform: translateY(14px) scale(.97); }
+      to { opacity: 1; transform: none; }
+    }
+    .load-stage {
+      position: relative;
+      width: 220px;
+      height: 240px;
+      margin: 0 auto 22px;
+    }
+    .load-spider-svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      filter: drop-shadow(0 12px 28px rgba(0, 20, 50, .55));
+    }
+    .load-web-ring {
+      fill: none;
+      stroke: rgba(160, 210, 240, .55);
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-dasharray: 520;
+      stroke-dashoffset: 520;
+      animation: weaveRing 2.8s ease-in-out infinite;
+    }
+    .load-web-ring.r2 { animation-delay: .28s; stroke: rgba(140, 200, 235, .48); }
+    .load-web-ring.r3 { animation-delay: .55s; stroke: rgba(130, 190, 230, .4); }
+    .load-web-ring.r4 { animation-delay: .82s; stroke: rgba(120, 185, 225, .32); }
+    .load-web-hub {
+      fill: none;
+      stroke: rgba(170, 215, 245, .5);
+      stroke-width: 1;
+      opacity: .7;
+    }
+    .load-web-spoke {
+      fill: none;
+      stroke: rgba(150, 200, 230, .42);
+      stroke-width: 1.05;
+      stroke-linecap: round;
+      opacity: 0;
+      animation: spokeFade 2.8s ease-in-out infinite;
+    }
+    @keyframes weaveRing {
+      0% { stroke-dashoffset: 520; opacity: .15; }
+      40% { stroke-dashoffset: 0; opacity: .9; }
+      70% { stroke-dashoffset: 0; opacity: .65; }
+      100% { stroke-dashoffset: -60; opacity: .12; }
+    }
+    @keyframes spokeFade {
+      0%, 8% { opacity: 0; }
+      30% { opacity: .75; }
+      75% { opacity: .5; }
+      100% { opacity: .15; }
+    }
+    .load-silk {
+      stroke: rgba(180, 220, 245, .75);
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-dasharray: 6 5;
+      animation: silkFlow 1s linear infinite;
+    }
+    @keyframes silkFlow {
+      to { stroke-dashoffset: -22; }
+    }
+    .load-spider-body {
+      transform-origin: 110px 118px;
+      animation: spiderWork 2.2s ease-in-out infinite;
+    }
+    @keyframes spiderWork {
+      0%, 100% { transform: translate(0, 0) rotate(-4deg); }
+      35% { transform: translate(6px, -8px) rotate(5deg); }
+      65% { transform: translate(-5px, 4px) rotate(-6deg); }
+    }
+    .load-legs path {
+      transform-origin: 110px 118px;
+      animation: loadLegs 0.55s ease-in-out infinite alternate;
+    }
+    .load-legs path:nth-child(odd) { animation-delay: .12s; }
+    @keyframes loadLegs {
+      from { transform: rotate(-3deg); }
+      to { transform: rotate(3deg); }
+    }
+    .load-glass {
+      transform-origin: 120px 92px;
+      animation: glassScan 1.8s ease-in-out infinite;
+    }
+    @keyframes glassScan {
+      0%, 100% { transform: rotate(12deg) translate(0, 0); }
+      50% { transform: rotate(-8deg) translate(-4px, 6px); }
+    }
+    .load-eye {
+      animation: loadEye 1.2s ease-in-out infinite;
+    }
+    @keyframes loadEye {
+      0%, 100% { opacity: .55; }
+      50% { opacity: 1; }
+    }
+    .load-bits text {
+      fill: #7ED4F0;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 9px;
+      opacity: .0;
+      animation: bitFall 2s linear infinite;
+    }
+    .load-bits text:nth-child(1) { animation-delay: 0s; }
+    .load-bits text:nth-child(2) { animation-delay: .35s; }
+    .load-bits text:nth-child(3) { animation-delay: .7s; }
+    .load-bits text:nth-child(4) { animation-delay: 1.05s; }
+    .load-bits text:nth-child(5) { animation-delay: 1.4s; }
+    @keyframes bitFall {
+      0% { opacity: 0; transform: translateY(-8px); }
+      20% { opacity: .85; }
+      100% { opacity: 0; transform: translateY(28px); }
+    }
+    .load-title {
+      margin: 0 0 8px;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: .4px;
+      color: #E4F2FA;
+      text-shadow: 0 2px 12px rgba(0, 8, 24, .6);
+    }
+    .load-status {
+      margin: 0 0 22px;
+      min-height: 1.4em;
+      font-size: 15px;
+      color: #A8C2D4;
+      text-shadow: 0 1px 8px rgba(0, 8, 24, .55);
+      transition: opacity .25s;
+    }
+    .load-bar {
+      width: min(280px, 100%);
+      height: 6px;
+      margin: 0 auto;
+      border-radius: 999px;
+      background: rgba(20, 40, 70, .55);
+      border: 1px solid rgba(150, 200, 235, .28);
+      overflow: hidden;
+      box-shadow: inset 0 1px 3px rgba(0, 8, 24, .35);
+    }
+    .load-bar-fill {
+      width: 42%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #3E8AB0, #7ED4F0, #B8E4F6);
+      box-shadow: 0 0 12px rgba(126, 212, 240, .45);
+      animation: barSlide 1.6s ease-in-out infinite;
+    }
+    @keyframes barSlide {
+      0% { transform: translateX(-120%); }
+      100% { transform: translateX(280%); }
+    }
+    .load-hint {
+      margin: 16px 0 0;
+      font-size: 13px;
+      color: rgba(168, 194, 212, .75);
+    }
+    body.scanning { overflow: hidden; }
   </style>
 </head>
 <body>
   <main class="page">
     <div class="brand" role="img" aria-label="Spyvision">
-      <!-- Cyber spider hanging on a web -->
+      <div class="brand-mark">
+      <!-- Cyber spider hanging above letter V -->
       <div class="mascot-wrap">
         <div class="silk-up" aria-hidden="true"></div>
         <svg class="mascot" viewBox="0 0 130 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -392,55 +624,67 @@
             </radialGradient>
           </defs>
 
-          <!-- Hang web (behind spider) -->
-          <g fill="none" stroke="#858585" stroke-linecap="round" opacity=".72">
-            <!-- Anchor / outer frame threads -->
-            <path d="M65 4 L12 38 L20 118 L65 142 L110 118 L118 38 Z" stroke-width="1.1"/>
-            <path d="M65 4 L65 142" stroke-width=".9" opacity=".85"/>
-            <path d="M12 38 L118 38" stroke-width=".85"/>
-            <path d="M20 118 L110 118" stroke-width=".85"/>
-            <path d="M12 38 L110 118" stroke-width=".75"/>
-            <path d="M118 38 L20 118" stroke-width=".75"/>
-            <!-- Concentric web rings -->
-            <ellipse cx="65" cy="72" rx="14" ry="16" stroke-width=".85"/>
-            <ellipse cx="65" cy="72" rx="26" ry="30" stroke-width=".9"/>
-            <ellipse cx="65" cy="72" rx="38" ry="44" stroke-width=".95"/>
-            <ellipse cx="65" cy="72" rx="50" ry="58" stroke-width="1"/>
-            <!-- Radial spokes -->
-            <path d="M65 72 L65 4" stroke-width=".85"/>
-            <path d="M65 72 L118 38" stroke-width=".85"/>
-            <path d="M65 72 L110 118" stroke-width=".85"/>
-            <path d="M65 72 L65 142" stroke-width=".85"/>
-            <path d="M65 72 L20 118" stroke-width=".85"/>
-            <path d="M65 72 L12 38" stroke-width=".85"/>
-            <path d="M65 72 L40 18" stroke-width=".7" stroke="#B7B7B7"/>
-            <path d="M65 72 L90 18" stroke-width=".7" stroke="#B7B7B7"/>
-            <path d="M65 72 L122 72" stroke-width=".7" stroke="#B7B7B7"/>
-            <path d="M65 72 L8 72" stroke-width=".7" stroke="#B7B7B7"/>
+          <!-- Hang web (behind spider) — figured orb web -->
+          <g fill="none" stroke="#858585" stroke-linecap="round" stroke-linejoin="round" opacity=".78">
+            <!-- Curved radial spokes -->
+            <path d="M65 72 Q67.5 37.6 65 9.4" stroke-width=".95"/>
+            <path d="M65 72 Q87 42.2 100.9 15.1" stroke-width=".95"/>
+            <path d="M65 72 Q93.6 57.8 114.8 42.6" stroke-width=".95"/>
+            <path d="M65 72 Q99.5 73.2 127.6 69.7" stroke-width=".95"/>
+            <path d="M65 72 Q95.3 93.4 122.5 106.7" stroke-width=".95"/>
+            <path d="M65 72 Q78 101.1 92.3 122.9" stroke-width=".95"/>
+            <path d="M65 72 Q63.5 106.6 66.8 134.7" stroke-width=".95"/>
+            <path d="M65 72 Q45 103.2 32.9 131" stroke-width=".95"/>
+            <path d="M65 72 Q35.9 84.9 14 99.1" stroke-width=".95"/>
+            <path d="M65 72 Q30.5 68.9 2.2 71" stroke-width=".95"/>
+            <path d="M65 72 Q33.6 52.4 5.6 40.7" stroke-width=".95"/>
+            <path d="M65 72 Q51 43.5 35.9 22.2" stroke-width=".95"/>
+            <!-- Scalloped capture spirals -->
+            <path d="M65 66.6 L67.9 67.4 L69.6 69.3 L70.4 71.8 L69.6 74.8 L67.5 76.8 L65.2 77.4 L62.4 76.7 L60.2 74.5 L59.6 71.9 L60.2 69.5 L62.3 67.3 Z" stroke-width=".7" opacity=".7"/>
+            <path d="M65 60.7 Q69.1 57.9 71.4 61.9 Q75.7 61.6 75 66.1 Q78.6 68 75.8 71.6 Q78.1 75.4 74.1 77.5 Q74.6 82.1 70.4 82.1 Q68.8 86.3 65.3 84 Q61.5 86.4 59.5 82.1 Q55.1 81.8 55.6 77 Q51.9 75.2 54.3 71.8 Q51.4 68.5 54.8 66.6 Q54.3 61.7 58.9 61.7 Q61.2 57.9 65 60.7" stroke-width=".8"/>
+            <path d="M65 50.2 Q72.6 45.7 76.6 53.7 Q83.9 53.7 82.3 61.8 Q88.9 65 84.4 71.3 Q89.4 78.3 82.6 82.6 Q83.4 91.4 75.3 91.3 Q72 98.4 65.6 93.4 Q58.9 97.3 55.5 89.4 Q47.4 89.4 47.8 81.1 Q40.3 78 44.1 71.7 Q38.9 65.3 45.5 61.7 Q45.3 53.2 54.3 53.7 Q57.9 45.9 65 50.2" stroke-width=".85"/>
+            <path d="M65 38.2 Q76.5 32.4 81.9 45.2 Q92.8 45 90.8 56.8 Q102 61.2 96.2 70.8 Q104.5 82.2 93.7 89.4 Q94.1 102.7 80.9 101.6 Q75.5 111.5 65.9 103.2 Q56 109.5 50.7 98.3 Q37.4 99.3 37.1 86.9 Q24.9 81.7 31.2 71.5 Q24 61.5 35.6 56.5 Q35.8 44.1 49.4 45.4 Q54.3 32.7 65 38.2" stroke-width=".9"/>
+            <path d="M65 28.4 Q79.8 21 86.7 37.6 Q102.2 35.9 100.7 50.9 Q117.2 56.7 109.8 70.3 Q120.3 86.3 104.2 95.7 Q103.6 112.6 85.3 109.9 Q78.5 122.9 66.1 112.5 Q52.9 122.6 44.9 108.9 Q25.9 110.7 25 93.3 Q9.4 85.4 19.4 71.3 Q11.3 58.3 27.5 52.2 Q27.2 35.9 44.6 37.1 Q51.1 20.9 65 28.4" stroke-width=".95"/>
+            <path d="M65 20.1 Q83.1 9.4 92.6 28.4 Q113.5 24.9 112.9 43.7 Q133.7 51.8 123 69.9 Q134.1 89.9 112.3 100.6 Q111.3 120.8 89.3 117.4 Q81.8 135.1 66.5 124.1 Q49.1 138.4 38.1 121.4 Q13.9 122.6 13.9 99.2 Q-3.9 88.6 10.5 71.1 Q0.5 55.5 19.7 48.1 Q17.7 26.8 38.4 26.5 Q47.8 8.4 65 20.1" stroke-width="1.05" stroke="#9A9A9A"/>
+            <!-- Soft outer anchor threads -->
+            <path d="M65 4 Q40 18 18 42" stroke-width=".7" opacity=".55" stroke="#A0A0A0"/>
+            <path d="M65 4 Q90 18 112 42" stroke-width=".7" opacity=".55" stroke="#A0A0A0"/>
+            <path d="M18 42 Q8 72 20 110" stroke-width=".65" opacity=".45" stroke="#A0A0A0"/>
+            <path d="M112 42 Q122 72 110 110" stroke-width=".65" opacity=".45" stroke="#A0A0A0"/>
           </g>
 
           <!-- Silk thread stub (continues upward via .silk-up outside SVG) -->
           <line x1="65" y1="0" x2="65" y2="52" stroke="#858585" stroke-width="1.5" stroke-linecap="round"/>
           <circle cx="65" cy="4" r="2.2" fill="#858585"/>
 
-          <!-- Spider body (shifted down a bit under the thread) -->
+          <!-- Spider body — перевёрнут головой вниз, чуть ниже по паутине -->
+          <g transform="translate(0, 26) rotate(180 65 70)">
           <g transform="translate(5, 18)">
-            <!-- Legs -->
-            <g class="leg-group" fill="none" stroke="url(#metalDark)" stroke-width="3.2" stroke-linecap="round">
+            <!-- Передние свисающие лапки (шевелятся) -->
+            <g class="leg-front-l" fill="none" stroke="url(#metalDark)" stroke-width="3.2" stroke-linecap="round">
               <path d="M48 48 C28 42, 18 28, 12 16"/>
               <path d="M46 54 C24 54, 14 48, 6 40"/>
-              <path d="M46 62 C26 68, 16 78, 10 92"/>
-              <path d="M50 66 C34 78, 28 92, 24 104"/>
+            </g>
+            <g class="leg-front-r" fill="none" stroke="url(#metalDark)" stroke-width="3.2" stroke-linecap="round">
               <path d="M72 48 C92 42, 102 28, 108 16"/>
               <path d="M74 54 C96 54, 106 48, 114 40"/>
+            </g>
+            <!-- Остальные лапки -->
+            <g class="leg-group" fill="none" stroke="url(#metalDark)" stroke-width="3.2" stroke-linecap="round">
+              <path d="M46 62 C26 68, 16 78, 10 92"/>
+              <path d="M50 66 C34 78, 28 92, 24 104"/>
               <path d="M74 62 C94 68, 104 78, 110 92"/>
               <path d="M70 66 C86 78, 92 92, 96 104"/>
             </g>
             <!-- Leg joints -->
-            <g fill="#858585">
+            <g class="leg-front-joint-l" fill="#858585">
               <circle cx="28" cy="36" r="2.2"/><circle cx="20" cy="50" r="2.2"/>
-              <circle cx="24" cy="74" r="2.2"/><circle cx="36" cy="84" r="2.2"/>
+            </g>
+            <g class="leg-front-joint-r" fill="#858585">
               <circle cx="92" cy="36" r="2.2"/><circle cx="100" cy="50" r="2.2"/>
+            </g>
+            <g fill="#858585">
+              <circle cx="24" cy="74" r="2.2"/><circle cx="36" cy="84" r="2.2"/>
               <circle cx="96" cy="74" r="2.2"/><circle cx="84" cy="84" r="2.2"/>
             </g>
 
@@ -472,14 +716,15 @@
             <path d="M52 54 Q48 60 50 66" fill="none" stroke="url(#metalDark)" stroke-width="2.4" stroke-linecap="round"/>
             <path d="M68 54 Q72 60 70 66" fill="none" stroke="url(#metalDark)" stroke-width="2.4" stroke-linecap="round"/>
 
-            <!-- Magnifying glass -->
-            <g transform="translate(78,58) rotate(18)">
-              <line x1="14" y1="14" x2="28" y2="28" stroke="#5A635E" stroke-width="4" stroke-linecap="round"/>
-              <line x1="14" y1="14" x2="28" y2="28" stroke="#B7B7B7" stroke-width="2.2" stroke-linecap="round"/>
-              <circle cx="6" cy="6" r="12" fill="url(#lensGrad)" stroke="#6E7771" stroke-width="3"/>
-              <circle cx="6" cy="6" r="12" fill="none" stroke="#E8ECE9" stroke-width="1" opacity=".6"/>
-              <path d="M-2 -2 Q2 -6 8 -4" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".7"/>
+            <!-- Magnifying glass — на передней лапе, не закрывает глаз -->
+            <g transform="translate(78, 24) rotate(38)">
+              <line x1="8" y1="8" x2="20" y2="22" stroke="#5A635E" stroke-width="3.2" stroke-linecap="round"/>
+              <line x1="8" y1="8" x2="20" y2="22" stroke="#B7B7B7" stroke-width="1.9" stroke-linecap="round"/>
+              <circle cx="3" cy="3" r="8.5" fill="url(#lensGrad)" stroke="#6E7771" stroke-width="2.4"/>
+              <circle cx="3" cy="3" r="8.5" fill="none" stroke="#E8ECE9" stroke-width="1" opacity=".6"/>
+              <path d="M-2 -1 Q1 -4 5 -2" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round" opacity=".7"/>
             </g>
+          </g>
           </g>
         </svg>
       </div>
@@ -573,6 +818,7 @@
           <text x="246" y="58" fill="url(#letterGrad)" font-weight="750">n</text>
         </g>
       </svg>
+      </div>
     </div>
 
     <p class="tagline">Анализ URL на ошибки конфигурации и базовые уязвимости</p>
@@ -608,12 +854,114 @@
     <footer>Spyvision · безопасные проверки без деструктивных действий</footer>
   </main>
 
+  <div class="scan-loading" id="scanLoading" aria-hidden="true" aria-live="polite">
+    <div class="scan-loading-inner">
+      <div class="load-stage" aria-hidden="true">
+        <svg class="load-spider-svg" viewBox="0 0 220 240" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="loadMetal" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#E8ECE9"/>
+              <stop offset="40%" stop-color="#A8B0AB"/>
+              <stop offset="100%" stop-color="#4A534E"/>
+            </linearGradient>
+            <radialGradient id="loadLens" cx="38%" cy="32%" r="62%">
+              <stop offset="0%" stop-color="#C8DCE8" stop-opacity=".95"/>
+              <stop offset="55%" stop-color="#9CCFE6" stop-opacity=".5"/>
+              <stop offset="100%" stop-color="#5A9AB8" stop-opacity=".28"/>
+            </radialGradient>
+          </defs>
+
+          <!-- Growing figured web -->
+          <g transform="translate(110,128)">
+            <path class="load-web-hub" d="M0 -7.2 L3.8 -6.1 L6.2 -3.7 L7.2 -.3 L6.2 3.7 L3.4 6.3 L.2 7.2 L-3.4 6.3 L-6.4 3.4 L-7.2 -.1 L-6.4 -3.4 L-3.6 -6.2 Z"/>
+            <path class="load-web-spoke" d="M0 0 Q2.9 -40.5 0 -73.6"/>
+            <path class="load-web-spoke" d="M0 0 Q25.9 -35.1 42.2 -66.9" style="animation-delay:.12s"/>
+            <path class="load-web-spoke" d="M0 0 Q33.6 -16.7 58.6 -34.6" style="animation-delay:.22s"/>
+            <path class="load-web-spoke" d="M0 0 Q40.6 1.4 73.7 -2.7" style="animation-delay:.32s"/>
+            <path class="load-web-spoke" d="M0 0 Q35.6 25.2 67.7 40.9" style="animation-delay:.42s"/>
+            <path class="load-web-spoke" d="M0 0 Q15.3 34.2 32.1 59.9" style="animation-delay:.52s"/>
+            <path class="load-web-spoke" d="M0 0 Q-1.8 40.7 2.1 73.8" style="animation-delay:.62s"/>
+            <path class="load-web-spoke" d="M0 0 Q-23.6 36.6 -37.8 69.4" style="animation-delay:.72s"/>
+            <path class="load-web-spoke" d="M0 0 Q-34.3 15.2 -60 31.9" style="animation-delay:.82s"/>
+            <path class="load-web-spoke" d="M0 0 Q-40.6 -3.6 -73.9 -1.2" style="animation-delay:.92s"/>
+            <path class="load-web-spoke" d="M0 0 Q-36.9 -23 -69.8 -36.8" style="animation-delay:1.02s"/>
+            <path class="load-web-spoke" d="M0 0 Q-16.5 -33.6 -34.3 -58.6" style="animation-delay:1.12s"/>
+            <path class="load-web-ring" stroke-width="1.45" d="M0 -15 Q5.5 -19.1 8.5 -13.5 Q14.5 -14 13.4 -7.9 Q18.4 -5.4 14.4 -.5 Q17.7 4.6 12.1 7.3 Q13 13.7 7.2 13.4 Q5.1 19.3 .4 16 Q-4.7 19.5 -7.3 13.5 Q-13.5 13.3 -12.6 6.7 Q-17.8 4.3 -14.3 -.2 Q-18.4 -4.7 -13.7 -7.2 Q-14.5 -13.9 -8.1 -13.8 Q-5.2 -19.2 0 -15"/>
+            <path class="load-web-ring r2" stroke-width="1.35" d="M0 -29.7 Q10.5 -36.4 15.8 -25 Q26.1 -25.4 23.6 -13.9 Q33.1 -9.7 26.4 -1 Q33.8 8.7 24 14.5 Q25.5 26.9 14.1 26.3 Q9.7 36.6 .8 29.2 Q-8.4 35.1 -13 23.8 Q-24.4 24.1 -23.4 12.5 Q-34.2 8.3 -28.4 -.5 Q-36.2 -9.3 -26.5 -14 Q-27.2 -26.1 -14.6 -25 Q-9.8 -36.2 0 -29.7"/>
+            <path class="load-web-ring r3" stroke-width="1.25" d="M0 -45.7 Q15.8 -54.4 22.9 -36.2 Q38.2 -37.1 34.9 -20.6 Q50.8 -14.9 42.2 -1.6 Q54.3 14 38.9 23.5 Q40 42.2 21.5 40.1 Q14.4 54.2 1.2 42.2 Q-12.4 51.5 -19.4 35.6 Q-37.9 37.5 -37.8 20.1 Q-55.1 13.3 -45.7 -.7 Q-56.3 -14.4 -39.8 -21 Q-40.1 -38.4 -21.1 -36 Q-14.6 -54 0 -45.7"/>
+            <path class="load-web-ring r4" stroke-width="1.2" d="M0 -58.8 Q20.2 -69.9 29.3 -46.4 Q50.9 -49.4 48.1 -28.5 Q71.5 -21 60.4 -2.2 Q75.7 19.6 52.9 31.9 Q52.8 55.6 27.4 51.1 Q18.5 69.7 1.5 54.6 Q-16.6 69.2 -27.1 49.7 Q-53.5 53 -53.9 28.7 Q-76.2 18.4 -61.4 -1 Q-73.6 -18.8 -50.6 -26.7 Q-51.7 -49.4 -27.6 -47.1 Q-19 -70 0 -58.8"/>
+          </g>
+
+          <!-- Silk from top -->
+          <line class="load-silk" x1="110" y1="8" x2="110" y2="96"/>
+          <circle cx="110" cy="10" r="3" fill="rgba(180,220,245,.85)"/>
+
+          <!-- Floating binary -->
+          <g class="load-bits">
+            <text x="42" y="70">01</text>
+            <text x="168" y="58">10</text>
+            <text x="34" y="140">11</text>
+            <text x="176" y="150">00</text>
+            <text x="56" y="200">101</text>
+          </g>
+
+          <!-- Working spider -->
+          <g class="load-spider-body">
+            <g class="load-legs" fill="none" stroke="#6E7771" stroke-width="3.2" stroke-linecap="round">
+              <path d="M98 108 C78 102, 68 88, 62 76"/>
+              <path d="M96 116 C74 116, 64 110, 56 102"/>
+              <path d="M96 126 C76 132, 66 144, 60 158"/>
+              <path d="M100 132 C84 144, 78 158, 74 170"/>
+              <path d="M122 108 C142 102, 152 88, 158 76"/>
+              <path d="M124 116 C146 116, 156 110, 164 102"/>
+              <path d="M124 126 C144 132, 154 144, 160 158"/>
+              <path d="M120 132 C136 144, 142 158, 146 170"/>
+            </g>
+            <ellipse cx="110" cy="138" rx="22" ry="26" fill="url(#loadMetal)"/>
+            <ellipse cx="110" cy="138" rx="13" ry="17" fill="#2A3330" opacity=".85"/>
+            <ellipse cx="110" cy="112" rx="17" ry="13" fill="url(#loadMetal)"/>
+            <g class="load-eye">
+              <circle cx="103" cy="110" r="3.2" fill="#3E7A98"/>
+              <circle cx="117" cy="110" r="3.2" fill="#3E7A98"/>
+              <circle cx="103" cy="110" r="1.7" fill="#7ED4F0"/>
+              <circle cx="117" cy="110" r="1.7" fill="#7ED4F0"/>
+              <circle cx="96" cy="114" r="1.3" fill="#5A9AB8"/>
+              <circle cx="124" cy="114" r="1.3" fill="#5A9AB8"/>
+            </g>
+            <g class="load-glass">
+              <line x1="126" y1="98" x2="146" y2="116" stroke="#B7B7B7" stroke-width="2.8" stroke-linecap="round"/>
+              <circle cx="120" cy="92" r="11" fill="url(#loadLens)" stroke="#8A948E" stroke-width="2.6"/>
+              <path d="M113 86 Q118 81 125 84" fill="none" stroke="#fff" stroke-width="1.4" opacity=".7"/>
+            </g>
+          </g>
+        </svg>
+      </div>
+      <h2 class="load-title">Сканирование</h2>
+      <p class="load-status" id="loadStatus">Паук плетёт сеть проверок…</p>
+      <div class="load-bar" aria-hidden="true"><div class="load-bar-fill"></div></div>
+      <p class="load-hint">Это может занять несколько минут</p>
+    </div>
+  </div>
+
   <script>
     (function () {
       var form = document.getElementById("scanForm");
       var input = document.getElementById("urlInput");
       var error = document.getElementById("urlError");
       var button = form.querySelector(".scan-btn");
+      var loading = document.getElementById("scanLoading");
+      var loadStatus = document.getElementById("loadStatus");
+      var statusTimer = null;
+      var statusMessages = [
+        "Паук плетёт сеть проверок…",
+        "Обходит страницы и формы…",
+        "Смотрит заголовки и cookies…",
+        "Ищет XSS и инъекции…",
+        "Проверяет TLS и редиректы…",
+        "Собирает доказательства…",
+        "Ещё немного — паук на охоте…"
+      ];
+      var statusIndex = 0;
 
       function showError(msg) {
         error.style.color = "";
@@ -627,10 +975,34 @@
         error.classList.add("show");
       }
 
+      function setLoading(on) {
+        if (!loading) { return; }
+        loading.classList.toggle("open", on);
+        loading.setAttribute("aria-hidden", on ? "false" : "true");
+        document.body.classList.toggle("scanning", on);
+        if (statusTimer) {
+          clearInterval(statusTimer);
+          statusTimer = null;
+        }
+        if (on && loadStatus) {
+          statusIndex = 0;
+          loadStatus.textContent = statusMessages[0];
+          statusTimer = setInterval(function () {
+            statusIndex = (statusIndex + 1) % statusMessages.length;
+            loadStatus.style.opacity = "0";
+            setTimeout(function () {
+              loadStatus.textContent = statusMessages[statusIndex];
+              loadStatus.style.opacity = "1";
+            }, 220);
+          }, 2800);
+        }
+      }
+
       function setBusy(busy) {
         button.disabled = busy;
         input.disabled = busy;
         button.textContent = busy ? "Сканирование…" : "Сканировать";
+        setLoading(busy);
       }
 
       function looksLikeUrl(value) {
@@ -681,9 +1053,9 @@
           })
           .then(function (result) {
             if (result.ok && result.data && result.data.ok) {
-              var target = result.data.report_url || "/report.html";
+              if (loadStatus) { loadStatus.textContent = "Готово. Открываю отчёт…"; }
               showOk("Готово. Открываю отчёт…");
-              location.href = target;
+              location.href = result.data.report_url || "/report.html";
               return;
             }
             var msg = (result.data && result.data.error)

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from .knowledge import describe
+from .knowledge import describe, owasp_for
 
 # --- Уровни критичности ---------------------------------------------------
 HIGH = "High"
@@ -28,7 +28,8 @@ class Finding:
 
     Поля `threat_type`, `impact` и `detection` заполняются автоматически из базы
     знаний (`knowledge.py`) по значению `kind` — это тип угрозы, объяснение
-    опасности и логика, по которой сканер сделал вывод.
+    опасности и логика, по которой сканер сделал вывод. Если в базе есть поле
+    ``fix``, им заменяется краткая `recommendation` из кода проверки.
     """
 
     url: str
@@ -43,12 +44,16 @@ class Finding:
     threat_type: str = ""
     impact: str = ""
     detection: str = ""
+    owasp: str = ""  # категория OWASP Top 10:2021
 
     def __post_init__(self) -> None:
         info = describe(self.kind)
         self.threat_type = self.threat_type or info.get("type", "")
         self.impact = self.impact or info.get("impact", "")
         self.detection = self.detection or info.get("detection", "")
+        self.owasp = self.owasp or info.get("owasp") or owasp_for(self.kind)
+        if info.get("fix"):
+            self.recommendation = info["fix"]
         if not self.threat_type:
             self.threat_type = ("Ошибка конфигурации" if self.category == CONFIG
                                 else "Уязвимость приложения")

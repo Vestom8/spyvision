@@ -8,11 +8,14 @@ from .checks import active as active_checks
 from .checks import clientside as clientside_check
 from .checks import cookies as cookies_check
 from .checks import cors as cors_check
+from .checks import deep as deep_checks
 from .checks import exposed as exposed_check
 from .checks import forms as forms_check
 from .checks import headers as headers_check
 from .checks import infoleak as infoleak_check
 from .checks import methods as methods_check
+from .checks import recon as recon_check
+from .checks import sast as sast_check
 from .checks import tls as tls_check
 from .crawler import crawl
 from .http_client import MAX_PAGES, MAX_REQUESTS, HttpClient
@@ -24,7 +27,7 @@ from .utils import host_of, is_valid_host, normalize_url, origin_of, query_param
 class ScanConfig:
     url: str
     max_pages: int = MAX_PAGES
-    max_depth: int = 2
+    max_depth: int = 8
     output: str = "report.html"
     max_requests: int = MAX_REQUESTS
     timeout: float = 5.0
@@ -33,6 +36,7 @@ class ScanConfig:
     active: bool = True
     test_post_forms: bool = True
     verbose: bool = False
+    use_gigachat: bool = True  # False при --no-gigachat: не вызывать API для «Как исправить»
 
 
 @dataclass
@@ -65,15 +69,30 @@ def run_scan(config: ScanConfig) -> ScanResult:
 
     crawl_reserve = int(config.max_requests * 0.35)
     site_reserve = int(config.max_requests * 0.15) if config.active else 0
+    sast_reserve = max(4, int(config.max_requests * 0.05))
+
+    # --- Этап 0: DNS / разведка (до HTTP-обхода, почти без бюджета) ------
+    _say(config, f"[1/5] DNS-разведка и инвентаризация доменов/IP: {target}")
+    recon = recon_check.run_recon(target, pages=None, dns=True, content=False)
+    findings.extend(recon.findings)
+    checks_list.append(("DNS A/AAAA, PTR, MX/NS", origin_of(target)))
+    checks_list.append(("Поиск поддоменов (словарь DNS)", f"{len(recon.subdomains)} найдено"))
+    checks_done += 2
+    _say(config, f"      IP: {len(recon.ips)}; поддоменов: {len(recon.subdomains)}")
 
     # --- Этап 1: обход сайта ---------------------------------------------
-    _say(config, f"[1/4] Обход сайта: {target}")
+    _say(config, f"[2/5] Обход сайта: {target}")
     pages, external_links = crawl(
         client, target, max_pages=config.max_pages, max_depth=config.max_depth,
         reserve=crawl_reserve, verbose=config.verbose,
     )
     checks_list.append(("Обход сайта в пределах домена", f"{len(pages)} стр., глубина ≤ {config.max_depth}"))
     _say(config, f"      загружено страниц: {len(pages)}; внешних ссылок пропущено: {len(external_links)}")
+
+    if pages:
+        recon_pages = recon_check.run_recon(target, pages=pages, dns=False, content=True)
+        findings.extend(recon_pages.findings)
+        checks_list.append(("Доменные имена и IP в содержимом страниц", f"{len(pages)} стр."))
 
     if not pages:
         notes.append("Не удалось загрузить ни одну страницу — проверьте доступность адреса, "
@@ -97,8 +116,8 @@ def run_scan(config: ScanConfig) -> ScanResult:
         return _finish(config, client, findings, pages, external_links, notes, checks_list,
                        checks_done, active_tests=0, started=started, target=target)
 
-    # --- Этап 2: пассивные проверки конфигурации и содержимого -----------
-    _say(config, f"[2/4] Проверка заголовков, cookies, форм и содержимого ({len(pages)} стр.)")
+    # --- Этап 2: пассивные проверки + SAST --------------------------------
+    _say(config, f"[3/5] Конфигурация, SAST по HTML/JS ({len(pages)} стр.)")
     for page in pages:
         findings.extend(headers_check.check_headers(page))
         findings.extend(cookies_check.check_cookies(page))
@@ -127,8 +146,16 @@ def run_scan(config: ScanConfig) -> ScanResult:
                             f"{len(pages)} стр."))
         checks_list.append(("Листинг каталогов", f"{len(pages)} стр."))
 
+        sast_findings = sast_check.run_sast(client, pages, reserve=sast_reserve)
+        findings.extend(sast_findings)
+        checks_list.append((
+            "SAST: статический анализ HTML/JS (eval, innerHTML, секреты, SQL/shell)",
+            f"{len(sast_findings)} находок",
+        ))
+        checks_done += len(sast_findings)
+
     # --- Этап 3: проверки уровня сайта -----------------------------------
-    _say(config, "[3/4] Проверка HTTPS/TLS, CORS, методов и служебных ресурсов")
+    _say(config, "[4/5] Проверка HTTPS/TLS, CORS, методов и служебных ресурсов")
     findings.extend(tls_check.check_https_and_tls(client, target, reserve=site_reserve))
     checks_list.append(("HTTPS, редирект с HTTP, сертификат TLS", origin_of(target)))
     checks_done += 3
@@ -152,42 +179,73 @@ def run_scan(config: ScanConfig) -> ScanResult:
     checks_list.append(("Служебные разделы в robots.txt", origin_of(target)))
     checks_done += 1
 
-    # --- Этап 4: активные проверки уязвимостей ---------------------------
+    # --- Этап 4: DAST — активные проверки уязвимостей --------------------
     if config.active:
-        _say(config, f"[4/4] Активные проверки (XSS, SQL и NoSQL, редирект, шаблоны, чтение "
-                     f"файлов, команды ОС, CRLF); доступно запросов: {client.remaining}")
+        deep_reserve = max(12, int(client.remaining * 0.28))
+        _say(config, f"[5/5] DAST: активные проверки + Broken Access Control / SSRF / XXE / "
+                     f"IDOR / JWT / GraphQL / WAF; доступно запросов: {client.remaining}")
         result = active_checks.run_active_checks(
-            client, pages, reserve=0, test_post_forms=config.test_post_forms,
+            client, pages, reserve=deep_reserve, test_post_forms=config.test_post_forms,
             verbose=config.verbose,
         )
         findings.extend(result.findings)
         checks_done += result.tests_executed
         active_tests = result.tests_executed
         targets_tested = result.targets_tested
-        active_scope = (f"{result.targets_tested} точек внедрения, "
+        active_scope = (f"DAST · {result.targets_tested} точек, "
                         f"{result.tests_executed} запросов")
         for check_name in (
-            "Отражённый XSS (маркер BAUMAN_TEST_92841), в том числе внутри <script>",
-            "Инъекции в SQL и NoSQL (', \", \\)",
-            "Открытый редирект",
-            "Инъекция в шаблон",
-            "Чтение файлов сервера",
-            "Выполнение команд ОС",
-            "Разделение заголовков (CRLF)",
+            "DAST: отражённый XSS (маркер BAUMAN_TEST_92841), в том числе внутри <script>",
+            "DAST: инъекции в SQL и NoSQL (', \", \\)",
+            "DAST: открытый редирект",
+            "DAST: инъекция в шаблон",
+            "DAST: чтение файлов сервера",
+            "DAST: выполнение команд ОС",
+            "DAST: разделение заголовков (CRLF)",
+            "DAST: обход WAF (альтернативные XSS/SQLi payloads)",
         ):
             checks_list.append((check_name, active_scope))
         if result.skipped_forms:
             notes.append(f"Активно не тестировались {result.skipped_forms} форм(а): они выглядят "
                          "изменяющими состояние (регистрация, оплата, удаление и т. п.). "
                          "Это ограничение безопасности самого сканера.")
-        if not result.tests_executed and pages:
+
+        deep = deep_checks.run_deep_checks(
+            client, pages, base_url=target, reserve=0,
+        )
+        findings.extend(deep.findings)
+        checks_done += deep.tests_executed
+        active_tests += deep.tests_executed
+        deep_scope = f"DAST · {deep.tests_executed} запросов"
+        for check_name in (
+            "DAST: SSRF (URL-параметры → loopback/metadata)",
+            "DAST: XXE (XML DOCTYPE/ENTITY)",
+            "DAST: stored / blind XSS",
+            "DAST: IDOR + Broken Access Control (OWASP A01)",
+            "DAST: бизнес-логика (отрицательные price/qty)",
+            "DAST: upload (обход расширения .php.jpg)",
+            "DAST: JWT / GraphQL / HTTP request smuggling",
+            "DAST: обход WAF (classic vs bypass XSS)",
+        ):
+            checks_list.append((check_name, deep_scope))
+
+        # покрытие OWASP Top 10 в заметках
+        owasp_hit = sorted({f.owasp for f in findings if f.owasp})
+        if owasp_hit:
+            notes.append(
+                "Классификация по OWASP Top 10:2021: "
+                + "; ".join(owasp_hit[:10])
+                + ("…" if len(owasp_hit) > 10 else "")
+            )
+
+        if not result.tests_executed and not deep.tests_executed and pages:
             notes.append("Точек внедрения (URL-параметров и полей форм) не найдено либо не хватило "
                          "лимита запросов — активные проверки не выполнялись.")
     else:
         active_tests = 0
         targets_tested = 0
-        notes.append("Активные проверки уязвимостей отключены ключом --no-active: "
-                     "выполнены только проверки конфигурации.")
+        notes.append("Активные проверки (DAST) отключены ключом --no-active: "
+                     "выполнены разведка, SAST и проверки конфигурации.")
 
     return _finish(config, client, findings, pages, external_links, notes, checks_list,
                    checks_done, active_tests=active_tests, started=started, target=target,
@@ -224,6 +282,15 @@ def _finish(config: ScanConfig, client: HttpClient, findings: FindingList, pages
         for host, message in client.tls_errors.items():
             notes.append(f"Проверка сертификата для {host} не пройдена; запросы выполнялись "
                          f"без проверки TLS, чтобы продолжить анализ. Причина: {message[:200]}")
+
+    # После всех проверок: попросить GigaChat переписать «Как исправить»
+    # (если ключ задан в gigachat_fix.py и не передан --no-gigachat).
+    if config.use_gigachat:
+        from .gigachat_fix import enrich_findings_with_gigachat
+
+        enrich_findings_with_gigachat(
+            findings, enabled=True, verbose=config.verbose,
+        )
 
     duration = round(time.monotonic() - started, 1)
     forms_found = sum(len(page.forms) for page in pages)

@@ -1,19 +1,23 @@
 """База знаний по находкам.
 
-Для каждого вида находки (`kind`) хранятся три пояснения, которые попадают в отчёт:
+Для каждого вида находки (`kind`) хранятся пояснения, которые попадают в отчёт:
 
 * ``type``      — тип угрозы человеческим языком (утечка данных, перехват трафика,
                   внедрение кода и т. д.);
 * ``impact``    — чем именно опасна проблема: что сможет сделать злоумышленник
                   и что потеряет владелец сайта или его пользователи;
 * ``detection`` — логика сканера: что было отправлено, что получено в ответе, по
-                  какому правилу сделан вывод и когда возможна ошибка.
+                  какому правилу сделан вывод и когда возможна ошибка;
+* ``fix``        — подробная инструкция «Как исправить» (из ``knowledge_fix.py``):
+                  пошаговое объяснение в стиле развёрнутого ответа нейросети.
 
 Тексты намеренно написаны без жаргона: отчёт читают не только специалисты по
 безопасности, но и разработчики и заказчики.
 """
 
 from typing import Dict
+
+from .knowledge_fix import FIXES
 
 # --- типы угроз (используются как краткая метка в таблице отчёта) ---------
 T_XSS = "Внедрение кода в страницу (XSS)"
@@ -1210,6 +1214,223 @@ KNOWLEDGE: Dict[str, Dict[str, str]] = {
                      "сервера — значит, перевод строки не отфильтрован.",
     },
 
+    # ==================== углублённые проверки ====================
+    "ssrf": {
+        "type": T_ACCESS,
+        "impact": "Сервер сам ходит по адресу, который подставил пользователь. Так читают "
+                  "внутренние сервисы, облачные metadata (ключи IAM) и файлы за файрволом — "
+                  "извне эти адреса недоступны, а через ваше приложение — да.",
+        "detection": "В параметр с именем вроде url/src/callback подставлен адрес "
+                     "127.0.0.1 или 169.254.169.254. В ответе появились признаки внутренней "
+                     "страницы или metadata. Сканер ничего на внутренней сети не изменял.",
+    },
+    "xxe": {
+        "type": T_LEAK,
+        "impact": "XML-парсер раскрывает внешние сущности: можно прочитать файлы сервера и "
+                  "иногда инициировать запросы во внутреннюю сеть (SSRF через XXE).",
+        "detection": "Отправлен XML с DOCTYPE и ENTITY на file:///etc/passwd. В ответе "
+                     "найдено характерное содержимое системного файла.",
+    },
+    "xxe_suspected": {
+        "type": T_LEAK,
+        "impact": "Парсер явно обрабатывает DOCTYPE/ENTITY. Даже без утечки файла это "
+                  "опасная конфигурация: при другой сущности возможен XXE.",
+        "detection": "Ответ на XML с DOCTYPE содержит сообщения парсера про ENTITY/DTD.",
+    },
+    "xss_stored": {
+        "type": T_XSS,
+        "impact": "Вредоносный код сохраняется на сервере и выполняется у каждого, кто "
+                  "откроет заражённую страницу — админка, лента, профиль. Не нужна "
+                  "специальная ссылка жертве.",
+        "detection": "После отправки маркера BAUMAN_STORE_XSS_7f3a он найден при повторной "
+                     "загрузке страницы без HTML-экранирования.",
+    },
+    "xss_blind": {
+        "type": T_XSS,
+        "impact": "Payload принят без отражения в том же ответе. Он может всплыть в "
+                  "админке, письме, PDF или логе — классический blind/stored XSS.",
+        "detection": "XSS-маркер принят (нет блока WAF/4xx), но в ответе не отражён. "
+                     "Требуется ручная проверка мест отложенного вывода.",
+    },
+    "idor": {
+        "type": T_ACCESS,
+        "impact": "Подобрав соседний числовой id, можно читать чужие заказы, профили и "
+                  "документы без дополнительных прав — сервер не проверяет владельца объекта.",
+        "detection": "Для URL с числовым идентификатором запрошен соседний id; получен "
+                     "осмысленный ответ 200 с признаками карточки сущности без экрана входа.",
+    },
+    "business_logic": {
+        "type": T_ACCESS,
+        "impact": "Параметры цены, количества или скидки принимаются без разумных границ. "
+                  "Так обходят оплату, получают товар бесплатно или ломают учёт.",
+        "detection": "В параметр price/qty/amount и подобные отправлено -1; сервер ответил "
+                     "успехом без сообщения о некорректном значении.",
+    },
+    "upload_bypass": {
+        "type": T_RCE,
+        "impact": "Принятие имени вроде .php.jpg часто означает слабую проверку типа. "
+                  "Дальше загружают веб-шелл и получают выполнение на сервере.",
+        "detection": "В форму загрузки отправлен безопасный маркер с именем "
+                     "bauman_test.php.jpg; сервер принял запрос без явного отказа.",
+    },
+    "upload_error": {
+        "type": T_AVAILABILITY,
+        "impact": "Пробная загрузка вызывает ошибку 5xx — признак необработанного пути "
+                  "разбора файла, иногда рядом бывают обходы фильтров.",
+        "detection": "Multipart-проба с двойным расширением вернула код 5xx.",
+    },
+    "jwt_alg_none": {
+        "type": T_SESSION,
+        "impact": "Токен с alg=none или пустой подписью можно подделать: подставить чужой "
+                  "user id / admin и войти без пароля.",
+        "detection": "JWT из ответа/cookie разобран: в header указан alg=none или подпись "
+                     "пуста.",
+    },
+    "jwt_weak": {
+        "type": T_SESSION,
+        "impact": "JWT без exp или с завышенными привилегиями в payload упрощает захват "
+                  "сессии и злоупотребление правами.",
+        "detection": "В ответе найден JWT; при разборе обнаружены слабые claims "
+                     "(нет exp, admin/role) или токен просто присутствует в выдаче.",
+    },
+    "graphql_introspection": {
+        "type": T_RECON,
+        "impact": "Introspection отдаёт полную схему API: все типы, поля и мутации. Это "
+                  "карта для атак на скрытые операции и чувствительные данные.",
+        "detection": "POST с запросом __schema к типовому пути /graphql вернул описание "
+                     "схемы.",
+    },
+    "graphql_endpoint": {
+        "type": T_RECON,
+        "impact": "Открытая GraphQL-точка без явной защиты — поверхность для тяжёлых "
+                  "запросов, batching-атак и перебора полей.",
+        "detection": "Типовой путь GraphQL ответил JSON с data/errors на introspection-запрос.",
+    },
+    "http_smuggling": {
+        "type": T_ACCESS,
+        "impact": "Разное понимание Content-Length и Transfer-Encoding у прокси и бэкенда "
+                  "позволяет «протащить» скрытый запрос: обойти ACL, отравить кэш, "
+                  "похитить чужие ответы.",
+        "detection": "Отправлен безопасный POST с одновременными Transfer-Encoding: chunked "
+                     "и Content-Length; сервер ответил успехом вместо явного отказа.",
+    },
+    "waf_bypass": {
+        "type": T_XSS,
+        "impact": "Классический XSS блокируется, а видоизменённый payload проходит — WAF "
+                  "даёт ложное чувство безопасности, атака всё равно достигает приложения.",
+        "detection": "Обычный XSS-маркер получил блок, а обходной (SVG/onerror/ontoggle) "
+                     "отразился в ответе с обработчиком события.",
+    },
+    "xss_waf_bypass": {
+        "type": T_XSS,
+        "impact": "Payload, рассчитанный на обход фильтров, отражается и может выполниться "
+                  "в браузере жертвы.",
+        "detection": "Альтернативный XSS-payload с onerror/onload/ontoggle вернулся в HTML "
+                     "без блокировки.",
+    },
+    "sqli_waf_bypass": {
+        "type": T_SQLI,
+        "impact": "Обходной SQLi-payload вызывает ошибку СУБД или аномалию ответа — фильтр "
+                  "на кавычку обходится комментариями/кодированием.",
+        "detection": "Вместо простой кавычки отправлен payload вроде '/**/OR/**/1=1--; "
+                     "сработали те же эвристики, что и для обычной SQLi.",
+    },
+    "waf_detected": {
+        "type": T_CONFIG,
+        "impact": "Сработал WAF/фильтр на классический XSS. Это хорошо как слой защиты, "
+                  "но не заменяет исправление кода и не гарантирует защиту от обходов.",
+        "detection": "Классический XSS-маркер получил 403/406 или страницу блокировки WAF.",
+    },
+    "broken_access": {
+        "type": T_ACCESS,
+        "impact": "Служебный раздел или API отдаёт данные без входа. Это Broken Access Control "
+                  "(OWASP A01): чужой пользователь читает админку, заказы или профили.",
+        "detection": "GET без сессии к /admin, /api/users и подобным вернул 200 с признаками "
+                     "панели или JSON-данных, без редиректа на логин.",
+    },
+    "broken_access_method": {
+        "type": T_ACCESS,
+        "impact": "Сервер принимает подмену метода (DELETE через override). Так обходят "
+                  "ограничения на опасные операции.",
+        "detection": "POST с заголовком X-HTTP-Method-Override: DELETE принят без отказа.",
+    },
+    "recon_dns_a": {
+        "type": T_RECON,
+        "impact": "Известны IP цели — дальше проверяют открытые порты и соседние сервисы.",
+        "detection": "DNS A/AAAA для целевого хоста.",
+    },
+    "recon_dns_extra": {
+        "type": T_RECON,
+        "impact": "MX/NS раскрывают почтовую и DNS-инфраструктуру.",
+        "detection": "Дополнительные DNS-имена mail/mx/ns*.",
+    },
+    "recon_ptr": {
+        "type": T_RECON,
+        "impact": "PTR может выдать внутренние имена хостов.",
+        "detection": "Обратный DNS по IP цели.",
+    },
+    "recon_hosts": {
+        "type": T_RECON,
+        "impact": "Связанные домены расширяют периметр атаки.",
+        "detection": "Имена хостов извлечены из HTML и ссылок.",
+    },
+    "recon_third_party_hosts": {
+        "type": T_RECON,
+        "impact": "Сторонние домены — поставщики, от которых зависит безопасность страницы.",
+        "detection": "Внешние hostname в контенте страниц.",
+    },
+    "recon_ips_in_content": {
+        "type": T_LEAK,
+        "impact": "IP в HTML/JS помогают картировать инфраструктуру, иногда внутреннюю.",
+        "detection": "Регулярное выражение на IPv4 в теле ответов.",
+    },
+    "recon_subdomains": {
+        "type": T_RECON,
+        "impact": "Поддомены (staging, admin, jenkins) часто слабее основного сайта.",
+        "detection": "Словарный DNS-перебор короткого списка префиксов.",
+    },
+    "sast_eval": {
+        "type": T_XSS,
+        "impact": "eval выполняет строку как код — прямой путь к XSS/RCE на клиенте.",
+        "detection": "SAST: в HTML/JS найден вызов eval(.",
+    },
+    "sast_function_ctor": {
+        "type": T_XSS,
+        "impact": "new Function() эквивалентен eval.",
+        "detection": "SAST: найден конструктор Function.",
+    },
+    "sast_innerhtml": {
+        "type": T_XSS,
+        "impact": "innerHTML с недоверенными данными — классический DOM XSS.",
+        "detection": "SAST: присваивание .innerHTML = в коде страницы/скрипта.",
+    },
+    "sast_document_write": {
+        "type": T_XSS,
+        "impact": "document.write может вставить разметку и скрипты атакующего.",
+        "detection": "SAST: вызов document.write.",
+    },
+    "sast_sql_concat": {
+        "type": T_SQLI,
+        "impact": "Склейка SQL из строк — признак инъекции, если код когда-либо уедет на сервер "
+                  "или скопирован из бэкенда во фронт.",
+        "detection": "SAST: SQL-ключевые слова рядом с конкатенацией/шаблоном.",
+    },
+    "sast_shell_concat": {
+        "type": T_RCE,
+        "impact": "Сборка команды ОС из строк опасна командной инъекцией.",
+        "detection": "SAST: exec/system/subprocess рядом с конкатенацией.",
+    },
+    "sast_hardcoded_password": {
+        "type": T_LEAK,
+        "impact": "Секрет в коде доступен каждому, кто открыл страницу или .js.",
+        "detection": "SAST: password/secret/api_key = '...' в исходнике.",
+    },
+    "sast_disable_security": {
+        "type": T_CONFIG,
+        "impact": "В коде отключены CSRF или проверка TLS — защита формально выключена.",
+        "detection": "SAST: csrf=false / verify=False / NODE_TLS_REJECT_UNAUTHORIZED=0.",
+    },
+
     # ==================== прочее ====================
     "external_links": {
         "type": T_OK,
@@ -1231,7 +1452,120 @@ KNOWLEDGE: Dict[str, Dict[str, str]] = {
     },
 }
 
+# OWASP Top 10:2021 — ориентир для классификации находок
+OWASP_A01 = "A01:2021 Broken Access Control"
+OWASP_A02 = "A02:2021 Cryptographic Failures"
+OWASP_A03 = "A03:2021 Injection"
+OWASP_A04 = "A04:2021 Insecure Design"
+OWASP_A05 = "A05:2021 Security Misconfiguration"
+OWASP_A06 = "A06:2021 Vulnerable and Outdated Components"
+OWASP_A07 = "A07:2021 Identification and Authentication Failures"
+OWASP_A08 = "A08:2021 Software and Data Integrity Failures"
+OWASP_A09 = "A09:2021 Security Logging and Monitoring Failures"
+OWASP_A10 = "A10:2021 Server-Side Request Forgery (SSRF)"
+
+# Сопоставление kind → категория OWASP Top 10 (по префиксу или точному kind)
+_KIND_OWASP_EXACT = {
+    "idor": OWASP_A01,
+    "broken_access": OWASP_A01,
+    "broken_access_method": OWASP_A01,
+    "business_logic": OWASP_A01,
+    "cors_reflect_credentials": OWASP_A01,
+    "cors_wildcard_credentials": OWASP_A01,
+    "ssrf": OWASP_A10,
+    "http_smuggling": OWASP_A05,
+    "jwt_alg_none": OWASP_A07,
+    "jwt_weak": OWASP_A07,
+    "cookie_secure": OWASP_A02,
+    "cookie_httponly": OWASP_A07,
+    "weak_tls": OWASP_A02,
+    "cert_expired": OWASP_A02,
+    "cert_untrusted": OWASP_A02,
+    "hsts_missing": OWASP_A02,
+    "sri_missing": OWASP_A08,
+    "outdated_library": OWASP_A06,
+    "graphql_introspection": OWASP_A05,
+    "graphql_endpoint": OWASP_A05,
+    "waf_detected": OWASP_A05,
+    "waf_bypass": OWASP_A03,
+    "xss_waf_bypass": OWASP_A03,
+    "sqli_waf_bypass": OWASP_A03,
+    "upload_bypass": OWASP_A01,
+    "xxe": OWASP_A03,
+    "xxe_suspected": OWASP_A03,
+    "open_redirect": OWASP_A01,
+    "open_redirect_meta": OWASP_A01,
+    "csrf_missing": OWASP_A01,
+    "recon_subdomains": OWASP_A05,
+    "recon_dns_a": OWASP_A05,
+    "recon_dns_extra": OWASP_A05,
+    "recon_ptr": OWASP_A05,
+    "recon_hosts": OWASP_A05,
+    "recon_third_party_hosts": OWASP_A05,
+    "recon_ips_in_content": OWASP_A05,
+}
+
+_KIND_OWASP_PREFIX = (
+    ("xss_", OWASP_A03),
+    ("sqli_", OWASP_A03),
+    ("nosqli_", OWASP_A03),
+    ("sast_eval", OWASP_A03),
+    ("sast_function", OWASP_A03),
+    ("sast_innerhtml", OWASP_A03),
+    ("sast_document", OWASP_A03),
+    ("sast_sql", OWASP_A03),
+    ("sast_shell", OWASP_A03),
+    ("sast_hardcoded", OWASP_A02),
+    ("sast_disable", OWASP_A05),
+    ("command_", OWASP_A03),
+    ("ssti", OWASP_A03),
+    ("lfi_", OWASP_A01),
+    ("crlf_", OWASP_A03),
+    ("csp_", OWASP_A05),
+    ("cors_", OWASP_A05),
+    ("cookie_", OWASP_A07),
+    ("exposed_", OWASP_A05),
+    ("cert_", OWASP_A02),
+    ("hsts_", OWASP_A02),
+    ("xfo_", OWASP_A05),
+    ("xcto_", OWASP_A05),
+    ("dom_xss", OWASP_A03),
+    ("token_in_storage", OWASP_A07),
+    ("secret_in_code", OWASP_A02),
+    ("stack_trace", OWASP_A05),
+    ("directory_listing", OWASP_A05),
+    ("file_upload", OWASP_A01),
+    ("mixed_content", OWASP_A02),
+    ("postmessage", OWASP_A01),
+)
+
+
+def owasp_for(kind: str) -> str:
+    """Возвращает метку OWASP Top 10:2021 для вида находки (или пустую строку)."""
+    if not kind:
+        return ""
+    if kind in _KIND_OWASP_EXACT:
+        return _KIND_OWASP_EXACT[kind]
+    for prefix, label in _KIND_OWASP_PREFIX:
+        if kind.startswith(prefix) or kind == prefix.rstrip("_"):
+            return label
+    return ""
+
+
+_DESCRIBE_CACHE: Dict[str, Dict[str, str]] = {}
+
 
 def describe(kind: str) -> Dict[str, str]:
-    """Возвращает пояснения для вида находки (пустые строки, если вида нет в базе)."""
-    return KNOWLEDGE.get(kind, {})
+    """Возвращает пояснения для вида находки (пустой словарь, если вида нет в базе)."""
+    cached = _DESCRIBE_CACHE.get(kind)
+    if cached is not None:
+        return dict(cached)
+    info = dict(KNOWLEDGE.get(kind, {}))
+    fix = FIXES.get(kind, "")
+    if fix:
+        info["fix"] = fix
+    owasp = info.get("owasp") or owasp_for(kind)
+    if owasp:
+        info["owasp"] = owasp
+    _DESCRIBE_CACHE[kind] = info
+    return dict(info)

@@ -60,7 +60,8 @@ class HttpClient:
                 "User-Agent": user_agent,
                 "Accept": "*/*",
                 "Accept-Encoding": "gzip, deflate",
-                "Connection": "close",
+                # keep-alive: переиспользуем TCP к одному хосту (пауза 0.5 с сохраняется)
+                "Connection": "keep-alive",
             }
         )
         self._last_request_at = 0.0
@@ -86,7 +87,7 @@ class HttpClient:
         url: str,
         *,
         headers: Optional[Dict[str, str]] = None,
-        data: Optional[Dict[str, str]] = None,
+        data=None,
         allow_redirects: bool = True,
         read_body: bool = True,
         max_body_bytes: Optional[int] = None,
@@ -152,29 +153,39 @@ class HttpClient:
 
     def _read_limited(self, response: requests.Response, read_body: bool,
                       max_body_bytes: Optional[int]) -> None:
-        """Читает не более лимита байт и закрывает соединение."""
+        """Читает не более лимита байт; соединение возвращается в пул keep-alive."""
         limit = self.max_body_bytes if max_body_bytes is None else max_body_bytes
-        content = b""
+        chunks: List[bytes] = []
+        total = 0
         truncated = False
         if read_body:
             try:
                 for chunk in response.iter_content(CHUNK_SIZE):
-                    content += chunk
-                    if len(content) >= limit:
+                    if not chunk:
+                        continue
+                    remain = limit - total
+                    if remain <= 0:
                         truncated = True
-                        content = content[:limit]
                         break
+                    if len(chunk) > remain:
+                        chunks.append(chunk[:remain])
+                        total = limit
+                        truncated = True
+                        break
+                    chunks.append(chunk)
+                    total += len(chunk)
             except RequestException as exc:
                 self.errors.append((response.url, f"Ошибка чтения тела: {exc}"))
             except Exception as exc:
                 self.errors.append((response.url, f"Ошибка чтения тела: {exc}"))
         else:
             truncated = True
+        # освобождаем соединение в пул Session (не рвём TCP)
         try:
             response.close()
         except Exception:
             pass
-        response._content = content
+        response._content = b"".join(chunks)
         response._content_consumed = True
         response.truncated = truncated  # type: ignore[attr-defined]
         if not response.encoding:
