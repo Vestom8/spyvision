@@ -67,8 +67,8 @@ CMD_ERROR_MARKERS = (
 )
 
 # Сколько точек внедрения проверять дополнительными (более дорогими) тестами
-EXTRA_TARGET_LIMIT = 20
-DEEP_TARGET_LIMIT = 8
+EXTRA_TARGET_LIMIT = 12
+DEEP_TARGET_LIMIT = 5
 
 REDIRECT_PARAM_HINTS = ("url", "redirect", "next", "return", "continue", "dest", "destination",
                         "target", "goto", "redir", "callback", "back", "link", "returnUrl",

@@ -9,20 +9,33 @@
   <link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #EEF2EE;
-      --panel: #FFFFFF;
-      --panel-2: #F4F8F5;
-      --mint: #D8F1E6;
-      --mint-deep: #BFE4D3;
-      --green: #2C7A5B;
-      --green-dark: #1E5A42;
-      --iron: #858585;
-      --iron-light: #B7B7B7;
-      --border: #D7E1DA;
-      --text: #26302B;
-      --muted: #64716A;
-      --safe: #3F9D75;
+      --bg: #E6F0E8;
+      --panel: #FAFDFB;
+      --panel-2: #F0F7F2;
+      --mint: #C5E8D4;
+      --mint-deep: #9ED4B8;
+      --green: #2A8F5C;
+      --green-dark: #165C3A;
+      --moss: #4A7C59;
+      --sage: #8FB996;
+      --iron: #6E7A72;
+      --iron-light: #A3AFA7;
+      --border: #C8DCCF;
+      --text: #1F2E26;
+      --muted: #5A6B60;
+      --safe: #3AA66F;
       --high: #B4503C;
+      --aurora-lime: #8BE06A;
+      --aurora-mint: #5ED9A0;
+      --aurora-emerald: #2FBF78;
+      --aurora-forest: #1A8F5C;
+      --aurora-teal: #2AA88A;
+      --lava-hi: #F3FBF7;
+      --lava-mint: #D4F0E4;
+      --lava-sage: #B5E2D2;
+      --lava-sea: #96D4C4;
+      --lava-teal: #7EC4B8;
+      --lava-deep: #63B3A4;
       --font: "Golos Text", "Segoe UI", sans-serif;
       --font-mono: "IBM Plex Mono", Consolas, monospace;
     }
@@ -33,9 +46,11 @@
       min-height: 100vh;
       color: var(--text);
       background:
-        radial-gradient(ellipse 70% 50% at 50% -5%, rgba(216, 241, 230, 0.95), transparent 58%),
-        radial-gradient(ellipse 45% 40% at 100% 100%, rgba(191, 228, 211, 0.45), transparent 55%),
-        linear-gradient(165deg, #FFFFFF 0%, var(--bg) 48%, var(--mint) 100%);
+        radial-gradient(ellipse 80% 55% at 50% -8%, rgba(139, 224, 106, 0.28), transparent 55%),
+        radial-gradient(ellipse 50% 40% at 15% 0%, rgba(94, 217, 160, 0.22), transparent 50%),
+        radial-gradient(ellipse 45% 35% at 85% 5%, rgba(42, 168, 138, 0.18), transparent 48%),
+        radial-gradient(ellipse 45% 40% at 100% 100%, rgba(158, 212, 184, 0.4), transparent 55%),
+        linear-gradient(168deg, #F4FBF6 0%, var(--bg) 42%, var(--mint) 100%);
       background-attachment: fixed;
       font: 15.5px/1.55 var(--font);
       overflow-x: hidden;
@@ -49,61 +64,314 @@
       overflow: hidden;
     }
 
-    .lava-lamp { position: absolute; inset: 0; overflow: hidden; }
+    /* Северное сияние — мягкие зелёные завесы сверху */
+    .aurora {
+      position: absolute;
+      top: -8%;
+      left: -10%;
+      right: -10%;
+      height: 58vh;
+      overflow: hidden;
+      opacity: .85;
+      mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+      -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+    }
+    .aurora-band {
+      position: absolute;
+      inset: -20% -5%;
+      border-radius: 40% 60% 50% 50% / 30% 40% 60% 70%;
+      filter: blur(28px);
+      mix-blend-mode: multiply;
+      animation: auroraDrift ease-in-out infinite;
+    }
+    .aurora-band.a1 {
+      background:
+        linear-gradient(105deg,
+          transparent 8%,
+          rgba(139, 224, 106, .55) 22%,
+          rgba(47, 191, 120, .42) 38%,
+          transparent 52%,
+          rgba(94, 217, 160, .5) 68%,
+          rgba(26, 143, 92, .35) 82%,
+          transparent 95%);
+      animation-duration: 14s;
+      opacity: .9;
+    }
+    .aurora-band.a2 {
+      background:
+        linear-gradient(78deg,
+          transparent 5%,
+          rgba(42, 168, 138, .4) 28%,
+          rgba(139, 224, 106, .48) 45%,
+          transparent 60%,
+          rgba(47, 191, 120, .38) 75%,
+          transparent 92%);
+      top: 8%;
+      height: 70%;
+      filter: blur(36px);
+      animation-duration: 18s;
+      animation-delay: -4s;
+      opacity: .75;
+    }
+    .aurora-band.a3 {
+      background:
+        radial-gradient(ellipse 40% 80% at 30% 20%, rgba(139, 224, 106, .45), transparent 70%),
+        radial-gradient(ellipse 35% 70% at 70% 35%, rgba(94, 217, 160, .4), transparent 65%),
+        radial-gradient(ellipse 30% 60% at 50% 10%, rgba(26, 143, 92, .28), transparent 60%);
+      filter: blur(22px);
+      animation-duration: 11s;
+      animation-delay: -7s;
+      opacity: .8;
+    }
+    @keyframes auroraDrift {
+      0%, 100% { transform: translate3d(0, 0, 0) skewX(-2deg) scale(1, 1); }
+      33% { transform: translate3d(3%, 2%, 0) skewX(3deg) scale(1.04, .96); }
+      66% { transform: translate3d(-4%, 1%, 0) skewX(-4deg) scale(.97, 1.05); }
+    }
+
+    .lava-svg {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+    .lava-lamp {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+    /* Мягкое холодное свечение у дна */
+    .lava-heat {
+      position: absolute;
+      left: -10%;
+      right: -10%;
+      bottom: -14%;
+      height: 28%;
+      background:
+        radial-gradient(ellipse 60% 70% at 50% 100%, rgba(190, 235, 220, .45), transparent 70%),
+        radial-gradient(ellipse 80% 55% at 30% 100%, rgba(170, 220, 210, .28), transparent 62%),
+        radial-gradient(ellipse 70% 50% at 70% 100%, rgba(150, 210, 200, .22), transparent 58%);
+      filter: blur(36px);
+      opacity: .75;
+    }
+    /* Metaball / goo — пузыри тянутся и сливаются с лужей */
+    .lava-goo {
+      position: absolute;
+      inset: 0;
+      filter: url(#lava-goo) blur(1.2px)
+        drop-shadow(0 0 22px rgba(160, 220, 200, .35))
+        drop-shadow(0 0 48px rgba(140, 205, 190, .18));
+      transform: translateZ(0);
+    }
     .lava-pool {
       position: absolute;
-      left: -5%; right: -5%; bottom: -8%;
-      height: 38%;
+      left: 2%;
+      right: 2%;
+      bottom: -16%;
+      height: 22%;
+      border-radius: 48% 52% 40% 42% / 60% 55% 40% 45%;
       background:
-        radial-gradient(ellipse 70% 55% at 30% 80%, rgba(63, 157, 117, .45), transparent 60%),
-        radial-gradient(ellipse 60% 50% at 70% 90%, rgba(44, 122, 91, .4), transparent 55%),
-        linear-gradient(to top,
-          rgba(30, 90, 66, .42) 0%,
-          rgba(44, 122, 91, .28) 35%,
-          rgba(63, 157, 117, .14) 65%,
-          transparent 100%);
+        radial-gradient(ellipse 55% 50% at 22% 30%, var(--lava-hi) 0%, transparent 52%),
+        radial-gradient(ellipse 48% 46% at 78% 38%, var(--lava-mint) 0%, transparent 50%),
+        linear-gradient(125deg,
+          var(--lava-mint) 0%,
+          var(--lava-sage) 28%,
+          var(--lava-sea) 55%,
+          var(--lava-teal) 78%,
+          var(--lava-deep) 100%),
+        radial-gradient(ellipse 90% 100% at 50% 70%,
+          var(--lava-sage) 0%,
+          var(--lava-sea) 40%,
+          var(--lava-teal) 70%,
+          var(--lava-deep) 100%);
+      background-blend-mode: soft-light, soft-light, normal, normal;
+      opacity: .8;
       filter: blur(2px);
+      animation: lavaPool 18s cubic-bezier(0.42, 0.05, 0.58, 0.95) infinite;
+    }
+    /* Лужа «принимает» капли — лёгкая рябь */
+    @keyframes lavaPool {
+      0%, 100% { transform: scale(1, 1) translateY(0); border-radius: 48% 52% 40% 42% / 60% 55% 40% 45%; }
+      22% { transform: scale(1.04, .9) translateY(3%); border-radius: 52% 48% 45% 40% / 50% 58% 38% 48%; }
+      48% { transform: scale(.98, 1.05) translateY(-1%); border-radius: 44% 56% 38% 48% / 62% 48% 48% 40%; }
+      72% { transform: scale(1.06, .88) translateY(4%); border-radius: 55% 45% 48% 38% / 48% 55% 42% 52%; }
     }
     .lava-blob {
       position: absolute;
-      bottom: 4%;
-      will-change: transform, border-radius;
+      bottom: 2%;
+      display: block;
+      will-change: transform, border-radius, background-position;
       background:
-        radial-gradient(circle at 32% 28%,
-          rgba(232, 247, 239, .95) 0%,
-          rgba(191, 228, 211, .75) 28%,
-          rgba(63, 157, 117, .62) 55%,
-          rgba(44, 122, 91, .5) 78%,
-          rgba(30, 90, 66, .35) 100%);
-      box-shadow:
-        inset 0 -8px 18px rgba(30, 90, 66, .25),
-        0 0 22px rgba(63, 157, 117, .28);
-      filter: blur(.6px);
-      opacity: .78;
-      animation: lavaBlob ease-in-out infinite;
+        radial-gradient(circle at 32% 26%,
+          var(--lava-hi) 0%,
+          transparent 42%),
+        linear-gradient(155deg,
+          var(--lava-hi) 0%,
+          var(--lava-mint) 22%,
+          var(--lava-sage) 45%,
+          var(--lava-sea) 68%,
+          var(--lava-teal) 85%,
+          var(--lava-deep) 100%);
+      background-size: 100% 100%, 140% 140%;
+      background-position: center, 30% 20%;
+      opacity: .84;
+      filter: blur(1.5px);
+      border-radius: 48% 52% 45% 55% / 55% 48% 52% 45%;
+      animation:
+        lavaFloat var(--lava-float, 40s) cubic-bezier(0.4, 0.0, 0.2, 1) infinite,
+        lavaMorph var(--lava-morph, 16s) cubic-bezier(0.45, 0.02, 0.55, 0.98) infinite,
+        lavaGradShift calc(var(--lava-float, 40s) * .85) ease-in-out infinite;
     }
-    .lava-blob.b1 { left: 8%;  width: 92px; height: 110px; animation-duration: 11s; animation-delay: 0s; }
-    .lava-blob.b2 { left: 22%; width: 64px; height: 78px;  animation-duration: 13.5s; animation-delay: -2.4s; }
-    .lava-blob.b3 { left: 38%; width: 118px; height: 128px; animation-duration: 15s; animation-delay: -5s; }
-    .lava-blob.b4 { left: 52%; width: 72px; height: 88px;  animation-duration: 12.2s; animation-delay: -1.2s; }
-    .lava-blob.b5 { left: 66%; width: 100px; height: 116px; animation-duration: 14s; animation-delay: -7s; }
-    .lava-blob.b6 { left: 78%; width: 58px; height: 70px;  animation-duration: 10.5s; animation-delay: -3.6s; }
-    .lava-blob.b7 { left: 14%; width: 48px; height: 56px;  animation-duration: 9.8s; animation-delay: -6.2s; }
-    .lava-blob.b8 { left: 44%; width: 82px; height: 96px;  animation-duration: 16s; animation-delay: -9s; }
-    .lava-blob.b9 { left: 86%; width: 70px; height: 84px;  animation-duration: 12.8s; animation-delay: -4.5s; }
-    @keyframes lavaBlob {
-      0% { transform: translate3d(0, 8%, 0) scale(1, .92); border-radius: 48% 52% 45% 55% / 55% 48% 52% 45%; }
-      12% { transform: translate3d(2%, -12vh, 0) scale(1.06, .88); border-radius: 55% 45% 52% 48% / 42% 58% 42% 58%; }
-      28% { transform: translate3d(-3%, -32vh, 0) scale(.92, 1.08); border-radius: 42% 58% 48% 52% / 58% 42% 55% 45%; }
-      42% { transform: translate3d(4%, -52vh, 0) scale(1.08, .9); border-radius: 58% 42% 55% 45% / 48% 52% 42% 58%; }
-      50% { transform: translate3d(0, -68vh, 0) scale(1.12, .82); border-radius: 50% 50% 42% 58% / 55% 45% 55% 45%; }
-      58% { transform: translate3d(-2%, -62vh, 0) scale(.95, 1.05); border-radius: 45% 55% 48% 52% / 42% 58% 48% 52%; }
-      72% { transform: translate3d(3%, -36vh, 0) scale(1.04, .92); border-radius: 52% 48% 55% 45% / 58% 42% 52% 48%; }
-      88% { transform: translate3d(-1%, -12vh, 0) scale(.96, 1.04); border-radius: 48% 52% 42% 58% / 45% 55% 48% 52%; }
-      100% { transform: translate3d(0, 8%, 0) scale(1, .92); border-radius: 48% 52% 45% 55% / 55% 48% 52% 45%; }
+    .lava-blob::before,
+    .lava-blob::after {
+      content: "";
+      position: absolute;
+      border-radius: inherit;
+      pointer-events: none;
+    }
+    .lava-blob::before {
+      inset: 14% 20% auto 16%;
+      height: 26%;
+      background: radial-gradient(ellipse at 40% 40%,
+        rgba(255, 255, 255, .8) 0%,
+        rgba(243, 251, 247, .4) 45%,
+        transparent 72%);
+      filter: blur(2px);
+    }
+    .lava-blob::after {
+      inset: auto 12% 10% 20%;
+      height: 36%;
+      background: linear-gradient(180deg,
+        transparent 0%,
+        rgba(99, 179, 164, .22) 55%,
+        rgba(126, 196, 184, .18) 100%);
+      filter: blur(1px);
+    }
+    .lava-blob.b1 {
+      left: 14%; width: 176px; height: 196px;
+      --lava-float: 38s; --lava-morph: 15s;
+      animation-delay: 0s, 0s, 0s;
+      background:
+        radial-gradient(circle at 30% 24%, var(--lava-hi) 0%, transparent 40%),
+        linear-gradient(148deg, var(--lava-hi), var(--lava-mint) 30%, var(--lava-sage) 55%, var(--lava-teal) 80%, var(--lava-deep));
+      background-size: 100% 100%, 150% 150%;
+    }
+    .lava-blob.b2 {
+      left: 34%; width: 154px; height: 178px;
+      --lava-float: 46s; --lava-morph: 18s;
+      animation-delay: -12s, -4s, -5s;
+      background:
+        radial-gradient(circle at 38% 30%, var(--lava-hi) 0%, transparent 42%),
+        linear-gradient(168deg, var(--lava-mint), var(--lava-sage) 35%, var(--lava-sea) 60%, var(--lava-deep));
+      background-size: 100% 100%, 150% 150%;
+    }
+    .lava-blob.b3 {
+      left: 52%; width: 198px; height: 214px;
+      --lava-float: 50s; --lava-morph: 17s;
+      animation-delay: -22s, -8s, -10s;
+      background:
+        radial-gradient(circle at 28% 28%, var(--lava-hi) 0%, transparent 44%),
+        linear-gradient(135deg, var(--lava-hi), var(--lava-sage) 28%, var(--lava-sea) 52%, var(--lava-teal) 75%, var(--lava-deep));
+      background-size: 100% 100%, 150% 150%;
+    }
+    .lava-blob.b4 {
+      left: 70%; width: 162px; height: 186px;
+      --lava-float: 42s; --lava-morph: 14s;
+      animation-delay: -6s, -2s, -3s;
+      background:
+        radial-gradient(circle at 35% 22%, var(--lava-hi) 0%, transparent 40%),
+        linear-gradient(160deg, var(--lava-mint), var(--lava-sea) 40%, var(--lava-teal) 70%, var(--lava-deep));
+      background-size: 100% 100%, 150% 150%;
+    }
+    @keyframes lavaGradShift {
+      0%, 100% { background-position: center, 25% 15%; }
+      50% { background-position: center, 75% 80%; }
+    }
+    .lava-speck {
+      position: absolute;
+      bottom: 4%;
+      display: block;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 35% 30%,
+          var(--lava-hi) 0%,
+          var(--lava-mint) 40%,
+          var(--lava-sea) 75%,
+          var(--lava-teal) 100%);
+      opacity: .72;
+      filter: blur(1.2px);
+      animation: lavaSpeck var(--speck-dur, 30s) cubic-bezier(0.4, 0.0, 0.2, 1) infinite;
+    }
+    .lava-speck.s1 { left: 24%; width: 28px; height: 32px; --speck-dur: 28s; animation-delay: -3s; }
+    .lava-speck.s2 { left: 46%; width: 22px; height: 26px; --speck-dur: 33s; animation-delay: -11s; }
+    .lava-speck.s3 { left: 62%; width: 34px; height: 38px; --speck-dur: 31s; animation-delay: -17s; }
+    .lava-speck.s4 { left: 78%; width: 20px; height: 24px; --speck-dur: 26s; animation-delay: -7s; }
+    /* Непрерывный цикл: выход из лужи → подъём → сразу спуск → слияние с лужей */
+    @keyframes lavaFloat {
+      0% {
+        transform: translate3d(0, 14%, 0) scale(1.22, .72);
+      }
+      8% {
+        transform: translate3d(.3%, 6%, 0) scale(.68, 1.4);
+      }
+      18% {
+        transform: translate3d(-.7%, -12vh, 0) scale(.9, 1.14);
+      }
+      30% {
+        transform: translate3d(.9%, -30vh, 0) scale(.98, 1.04);
+      }
+      42% {
+        transform: translate3d(-.4%, -48vh, 0) scale(1.04, .96);
+      }
+      50% {
+        transform: translate3d(0, -58vh, 0) scale(1.1, .88);
+      }
+      58% {
+        transform: translate3d(.5%, -50vh, 0) scale(.85, 1.2);
+      }
+      70% {
+        transform: translate3d(-.8%, -32vh, 0) scale(.92, 1.1);
+      }
+      82% {
+        transform: translate3d(.4%, -14vh, 0) scale(1.0, 1.0);
+      }
+      90% {
+        transform: translate3d(0, -2vh, 0) scale(.7, 1.35);
+      }
+      96% {
+        transform: translate3d(0, 8%, 0) scale(1.08, .82);
+      }
+      100% {
+        transform: translate3d(0, 14%, 0) scale(1.22, .72);
+      }
+    }
+    @keyframes lavaMorph {
+      0%, 100% { border-radius: 46% 54% 42% 58% / 58% 46% 54% 42%; }
+      15% { border-radius: 60% 40% 55% 45% / 40% 60% 40% 60%; }
+      30% { border-radius: 40% 60% 48% 52% / 62% 38% 58% 42%; }
+      45% { border-radius: 55% 45% 38% 62% / 48% 52% 38% 62%; }
+      60% { border-radius: 42% 58% 58% 42% / 55% 45% 55% 45%; }
+      75% { border-radius: 58% 42% 45% 55% / 42% 58% 48% 52%; }
+      90% { border-radius: 48% 52% 60% 40% / 52% 48% 40% 60%; }
+    }
+    @keyframes lavaSpeck {
+      0% { transform: translate3d(0, 12%, 0) scale(1.15, .8); opacity: .4; }
+      10% { transform: translate3d(1%, 2%, 0) scale(.75, 1.25); opacity: .75; }
+      28% { transform: translate3d(2%, -20vh, 0) scale(.92, 1.1); opacity: .8; }
+      48% { transform: translate3d(-1.5%, -46vh, 0) scale(1.1, .9); opacity: .75; }
+      52% { transform: translate3d(0, -52vh, 0) scale(1.15, .85); opacity: .7; }
+      68% { transform: translate3d(1%, -30vh, 0) scale(.88, 1.15); opacity: .8; }
+      85% { transform: translate3d(-.5%, -8vh, 0) scale(.72, 1.3); opacity: .65; }
+      94% { transform: translate3d(0, 6%, 0) scale(1.05, .88); opacity: .5; }
+      100% { transform: translate3d(0, 12%, 0) scale(1.15, .8); opacity: .4; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .lava-blob { animation: none !important; transform: translateY(0) !important; opacity: .55; }
+      .lava-blob, .lava-speck, .lava-pool {
+        animation: none !important;
+        transform: none !important;
+        opacity: .55;
+      }
+      .aurora-band { animation: none !important; }
     }
 
     .page {
@@ -239,7 +507,7 @@
     }
     .search:focus-within {
       border-color: var(--green);
-      box-shadow: 0 0 0 3px rgba(44, 122, 91, .14), 0 4px 16px rgba(38, 48, 43, .08);
+      box-shadow: 0 0 0 3px rgba(42, 143, 92, .16), 0 4px 16px rgba(31, 46, 38, .08);
     }
     .search-ico { flex: none; color: var(--green); display: flex; opacity: .85; }
     .search input {
@@ -273,7 +541,7 @@
       inset: -2px;
       border-radius: inherit;
       padding: 2px;
-      background: conic-gradient(from 180deg, #D8F1E6, #BFE4D3, #3F9D75, #2C7A5B, #1E5A42, #3F9D75, #BFE4D3, #D8F1E6);
+      background: conic-gradient(from 180deg, #C5E8D4, #9ED4B8, #8BE06A, #3AA66F, #2A8F5C, #165C3A, #2AA88A, #C5E8D4);
       -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
       -webkit-mask-composite: xor;
       mask-composite: exclude;
@@ -438,7 +706,12 @@
       .tagline { font-size: 13.5px; margin-bottom: 18px; }
       .search { height: 50px; padding-left: 14px; }
       .scan-btn { padding: 0 14px; font-size: 13px; }
-      .lava-blob.b3, .lava-blob.b5 { width: 72px; height: 84px; }
+      .lava-blob.b1 { width: 120px; height: 136px; }
+      .lava-blob.b2 { width: 108px; height: 124px; }
+      .lava-blob.b3 { width: 132px; height: 148px; }
+      .lava-blob.b4 { width: 112px; height: 128px; }
+      .lava-speck { transform: scale(.85); }
+      .aurora { height: 48vh; opacity: .7; }
       .scan-status { font-size: 14.5px; }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -450,17 +723,36 @@
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true">
+    <div class="aurora">
+      <span class="aurora-band a1"></span>
+      <span class="aurora-band a2"></span>
+      <span class="aurora-band a3"></span>
+    </div>
     <div class="lava-lamp">
-      <div class="lava-pool"></div>
-      <span class="lava-blob b1"></span>
-      <span class="lava-blob b2"></span>
-      <span class="lava-blob b3"></span>
-      <span class="lava-blob b4"></span>
-      <span class="lava-blob b5"></span>
-      <span class="lava-blob b6"></span>
-      <span class="lava-blob b7"></span>
-      <span class="lava-blob b8"></span>
-      <span class="lava-blob b9"></span>
+      <svg class="lava-svg" aria-hidden="true" focusable="false">
+        <defs>
+          <filter id="lava-goo" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="15" result="blur"/>
+            <feColorMatrix in="blur" mode="matrix" values="
+              1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              0 0 0 18 -9" result="goo"/>
+          </filter>
+        </defs>
+      </svg>
+      <div class="lava-heat"></div>
+      <div class="lava-goo">
+        <div class="lava-pool"></div>
+        <span class="lava-blob b1"></span>
+        <span class="lava-blob b2"></span>
+        <span class="lava-blob b3"></span>
+        <span class="lava-blob b4"></span>
+        <span class="lava-speck s1"></span>
+        <span class="lava-speck s2"></span>
+        <span class="lava-speck s3"></span>
+        <span class="lava-speck s4"></span>
+      </div>
     </div>
   </div>
 

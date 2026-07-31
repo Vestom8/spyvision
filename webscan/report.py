@@ -41,30 +41,46 @@ SEVERITY_HINT = {
 CSS = """
 @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap");
 :root {
-  --bg: #E8F3EC;
+  --bg: #E6F0E8;
   --bg-top: #F4FBF6;
-  --panel: #FFFFFF;
-  --panel-2: #F3F9F5;
-  --mint: #D8F1E6;
-  --mint-deep: #BFE4D3;
-  --green: #2F8F63;
-  --green-dark: #1B5C40;
-  --iron: #6B756F;
-  --iron-light: #9AA39D;
-  --border: #D5E5DB;
-  --text: #243028;
-  --muted: #5E6B64;
+  --panel: #FAFDFB;
+  --panel-2: #F0F7F2;
+  --mint: #C5E8D4;
+  --mint-deep: #9ED4B8;
+  --green: #2A8F5C;
+  --green-dark: #165C3A;
+  --moss: #4A7C59;
+  --sage: #8FB996;
+  --iron: #6E7A72;
+  --iron-light: #A3AFA7;
+  --border: #C8DCCF;
+  --text: #1F2E26;
+  --muted: #5A6B60;
   --high: #C24B3A;
   --medium: #C98A2E;
-  --low: #858585;
+  --low: #6E7A72;
   --safe: #3AA66F;
-  --shadow: 0 10px 28px rgba(27, 70, 48, .10);
-  --shadow-soft: 0 4px 16px rgba(27, 70, 48, .07);
+  --aurora-lime: #8BE06A;
+  --aurora-mint: #5ED9A0;
+  --aurora-emerald: #2FBF78;
+  --aurora-forest: #1A8F5C;
+  --aurora-teal: #2AA88A;
+  --lava-hi: #F3FBF7;
+  --lava-mint: #D4F0E4;
+  --lava-sage: #B5E2D2;
+  --lava-sea: #96D4C4;
+  --lava-teal: #7EC4B8;
+  --lava-deep: #63B3A4;
+  --shadow: 0 10px 28px rgba(22, 70, 48, .10);
+  --shadow-soft: 0 4px 16px rgba(22, 70, 48, .07);
 }
 * { box-sizing: border-box; }
 body {
   margin: 0; padding: 0 0 28px; color: var(--text); min-height: 100vh;
   background:
+    radial-gradient(ellipse 80% 55% at 50% -8%, rgba(139,224,106,.22), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 15% 0%, rgba(94,217,160,.18), transparent 50%),
+    radial-gradient(ellipse 45% 35% at 85% 5%, rgba(42,168,138,.14), transparent 48%),
     radial-gradient(ellipse 90% 60% at 50% 0%, #FFFFFF 0%, var(--bg-top) 40%, var(--bg) 100%) fixed;
   font: 15px/1.6 Manrope, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -73,67 +89,341 @@ body::before {
   content: "";
   position: fixed; inset: 0; pointer-events: none; z-index: 0;
   background:
-    radial-gradient(circle at 12% 18%, rgba(168,212,188,.45) 0%, transparent 22%),
-    radial-gradient(circle at 88% 12%, rgba(210,235,221,.55) 0%, transparent 18%),
-    radial-gradient(circle at 78% 78%, rgba(168,212,188,.35) 0%, transparent 24%),
-    radial-gradient(circle at 18% 82%, rgba(210,235,221,.4) 0%, transparent 20%);
+    radial-gradient(circle at 12% 18%, rgba(158,212,184,.4) 0%, transparent 22%),
+    radial-gradient(circle at 88% 12%, rgba(197,232,212,.5) 0%, transparent 18%),
+    radial-gradient(circle at 78% 78%, rgba(143,185,150,.3) 0%, transparent 24%),
+    radial-gradient(circle at 18% 82%, rgba(197,232,212,.35) 0%, transparent 20%);
 }
 body.locked { overflow: hidden; }
 
-/* Лавовая лампа — как на титульной */
+/* Северное сияние + лавовая лампа — как на главном экране */
 .atmosphere {
-  position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
 }
-.lava-lamp { position: absolute; inset: 0; overflow: hidden; }
-.lava-pool {
-  position: absolute; left: -5%; right: -5%; bottom: -8%; height: 38%;
+
+/* Северное сияние — мягкие зелёные завесы сверху */
+.aurora {
+  position: absolute;
+  top: -8%;
+  left: -10%;
+  right: -10%;
+  height: 58vh;
+  overflow: hidden;
+  opacity: .85;
+  mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 35%, transparent 92%);
+}
+.aurora-band {
+  position: absolute;
+  inset: -20% -5%;
+  border-radius: 40% 60% 50% 50% / 30% 40% 60% 70%;
+  filter: blur(28px);
+  mix-blend-mode: multiply;
+  animation: auroraDrift ease-in-out infinite;
+}
+.aurora-band.a1 {
   background:
-    radial-gradient(ellipse 70% 55% at 30% 80%, rgba(63,157,117,.45), transparent 60%),
-    radial-gradient(ellipse 60% 50% at 70% 90%, rgba(44,122,91,.4), transparent 55%),
-    linear-gradient(to top, rgba(30,90,66,.42) 0%, rgba(44,122,91,.28) 35%,
-      rgba(63,157,117,.14) 65%, transparent 100%);
+    linear-gradient(105deg,
+      transparent 8%,
+      rgba(139, 224, 106, .55) 22%,
+      rgba(47, 191, 120, .42) 38%,
+      transparent 52%,
+      rgba(94, 217, 160, .5) 68%,
+      rgba(26, 143, 92, .35) 82%,
+      transparent 95%);
+  animation-duration: 14s;
+  opacity: .9;
+}
+.aurora-band.a2 {
+  background:
+    linear-gradient(78deg,
+      transparent 5%,
+      rgba(42, 168, 138, .4) 28%,
+      rgba(139, 224, 106, .48) 45%,
+      transparent 60%,
+      rgba(47, 191, 120, .38) 75%,
+      transparent 92%);
+  top: 8%;
+  height: 70%;
+  filter: blur(36px);
+  animation-duration: 18s;
+  animation-delay: -4s;
+  opacity: .75;
+}
+.aurora-band.a3 {
+  background:
+    radial-gradient(ellipse 40% 80% at 30% 20%, rgba(139, 224, 106, .45), transparent 70%),
+    radial-gradient(ellipse 35% 70% at 70% 35%, rgba(94, 217, 160, .4), transparent 65%),
+    radial-gradient(ellipse 30% 60% at 50% 10%, rgba(26, 143, 92, .28), transparent 60%);
+  filter: blur(22px);
+  animation-duration: 11s;
+  animation-delay: -7s;
+  opacity: .8;
+}
+@keyframes auroraDrift {
+  0%, 100% { transform: translate3d(0, 0, 0) skewX(-2deg) scale(1, 1); }
+  33% { transform: translate3d(3%, 2%, 0) skewX(3deg) scale(1.04, .96); }
+  66% { transform: translate3d(-4%, 1%, 0) skewX(-4deg) scale(.97, 1.05); }
+}
+
+.lava-svg {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+.lava-lamp {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+/* Мягкое холодное свечение у дна */
+.lava-heat {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -14%;
+  height: 28%;
+  background:
+    radial-gradient(ellipse 60% 70% at 50% 100%, rgba(190, 235, 220, .45), transparent 70%),
+    radial-gradient(ellipse 80% 55% at 30% 100%, rgba(170, 220, 210, .28), transparent 62%),
+    radial-gradient(ellipse 70% 50% at 70% 100%, rgba(150, 210, 200, .22), transparent 58%);
+  filter: blur(36px);
+  opacity: .75;
+}
+/* Metaball / goo — пузыри тянутся и сливаются с лужей */
+.lava-goo {
+  position: absolute;
+  inset: 0;
+  filter: url(#lava-goo) blur(1.2px)
+    drop-shadow(0 0 22px rgba(160, 220, 200, .35))
+    drop-shadow(0 0 48px rgba(140, 205, 190, .18));
+  transform: translateZ(0);
+}
+.lava-pool {
+  position: absolute;
+  left: 2%;
+  right: 2%;
+  bottom: -16%;
+  height: 22%;
+  border-radius: 48% 52% 40% 42% / 60% 55% 40% 45%;
+  background:
+    radial-gradient(ellipse 55% 50% at 22% 30%, var(--lava-hi) 0%, transparent 52%),
+    radial-gradient(ellipse 48% 46% at 78% 38%, var(--lava-mint) 0%, transparent 50%),
+    linear-gradient(125deg,
+      var(--lava-mint) 0%,
+      var(--lava-sage) 28%,
+      var(--lava-sea) 55%,
+      var(--lava-teal) 78%,
+      var(--lava-deep) 100%),
+    radial-gradient(ellipse 90% 100% at 50% 70%,
+      var(--lava-sage) 0%,
+      var(--lava-sea) 40%,
+      var(--lava-teal) 70%,
+      var(--lava-deep) 100%);
+  background-blend-mode: soft-light, soft-light, normal, normal;
+  opacity: .8;
   filter: blur(2px);
+  animation: lavaPool 18s cubic-bezier(0.42, 0.05, 0.58, 0.95) infinite;
+}
+/* Лужа «принимает» капли — лёгкая рябь */
+@keyframes lavaPool {
+  0%, 100% { transform: scale(1, 1) translateY(0); border-radius: 48% 52% 40% 42% / 60% 55% 40% 45%; }
+  22% { transform: scale(1.04, .9) translateY(3%); border-radius: 52% 48% 45% 40% / 50% 58% 38% 48%; }
+  48% { transform: scale(.98, 1.05) translateY(-1%); border-radius: 44% 56% 38% 48% / 62% 48% 48% 40%; }
+  72% { transform: scale(1.06, .88) translateY(4%); border-radius: 55% 45% 48% 38% / 48% 55% 42% 52%; }
 }
 .lava-blob {
-  position: absolute; bottom: 4%; will-change: transform, border-radius;
-  background: radial-gradient(circle at 32% 28%,
-    rgba(232,247,239,.95) 0%, rgba(191,228,211,.75) 28%, rgba(63,157,117,.62) 55%,
-    rgba(44,122,91,.5) 78%, rgba(30,90,66,.35) 100%);
-  box-shadow: inset 0 -8px 18px rgba(30,90,66,.25), 0 0 22px rgba(63,157,117,.28);
-  filter: blur(.6px); opacity: .72; animation: lavaBlob ease-in-out infinite;
+  position: absolute;
+  bottom: 2%;
+  display: block;
+  will-change: transform, border-radius, background-position;
+  background:
+    radial-gradient(circle at 32% 26%,
+      var(--lava-hi) 0%,
+      transparent 42%),
+    linear-gradient(155deg,
+      var(--lava-hi) 0%,
+      var(--lava-mint) 22%,
+      var(--lava-sage) 45%,
+      var(--lava-sea) 68%,
+      var(--lava-teal) 85%,
+      var(--lava-deep) 100%);
+  background-size: 100% 100%, 140% 140%;
+  background-position: center, 30% 20%;
+  opacity: .84;
+  filter: blur(1.5px);
+  border-radius: 48% 52% 45% 55% / 55% 48% 52% 45%;
+  animation:
+    lavaFloat var(--lava-float, 40s) cubic-bezier(0.4, 0.0, 0.2, 1) infinite,
+    lavaMorph var(--lava-morph, 16s) cubic-bezier(0.45, 0.02, 0.55, 0.98) infinite,
+    lavaGradShift calc(var(--lava-float, 40s) * .85) ease-in-out infinite;
 }
-.lava-blob.b1 { left: 8%;  width: 92px; height: 110px; animation-duration: 11s; }
-.lava-blob.b2 { left: 22%; width: 64px; height: 78px;  animation-duration: 13.5s; animation-delay: -2.4s; }
-.lava-blob.b3 { left: 38%; width: 118px; height: 128px; animation-duration: 15s; animation-delay: -5s; }
-.lava-blob.b4 { left: 52%; width: 72px; height: 88px;  animation-duration: 12.2s; animation-delay: -1.2s; }
-.lava-blob.b5 { left: 66%; width: 100px; height: 116px; animation-duration: 14s; animation-delay: -7s; }
-.lava-blob.b6 { left: 78%; width: 58px; height: 70px;  animation-duration: 10.5s; animation-delay: -3.6s; }
-.lava-blob.b7 { left: 14%; width: 48px; height: 56px;  animation-duration: 9.8s; animation-delay: -6.2s; }
-.lava-blob.b8 { left: 44%; width: 82px; height: 96px;  animation-duration: 16s; animation-delay: -9s; }
-.lava-blob.b9 { left: 86%; width: 70px; height: 84px;  animation-duration: 12.8s; animation-delay: -4.5s; }
-@keyframes lavaBlob {
-  0% { transform: translate3d(0,8%,0) scale(1,.92);
-    border-radius: 48% 52% 45% 55% / 55% 48% 52% 45%; }
-  12% { transform: translate3d(2%,-12vh,0) scale(1.06,.88);
-    border-radius: 55% 45% 52% 48% / 42% 58% 42% 58%; }
-  28% { transform: translate3d(-3%,-32vh,0) scale(.92,1.08);
-    border-radius: 42% 58% 48% 52% / 58% 42% 55% 45%; }
-  42% { transform: translate3d(4%,-52vh,0) scale(1.08,.9);
-    border-radius: 58% 42% 55% 45% / 48% 52% 42% 58%; }
-  50% { transform: translate3d(0,-68vh,0) scale(1.12,.82);
-    border-radius: 50% 50% 42% 58% / 55% 45% 55% 45%; }
-  58% { transform: translate3d(-2%,-62vh,0) scale(.95,1.05);
-    border-radius: 45% 55% 48% 52% / 42% 58% 48% 52%; }
-  72% { transform: translate3d(3%,-36vh,0) scale(1.04,.92);
-    border-radius: 52% 48% 55% 45% / 58% 42% 52% 48%; }
-  88% { transform: translate3d(-1%,-12vh,0) scale(.96,1.04);
-    border-radius: 48% 52% 42% 58% / 45% 55% 48% 52%; }
-  100% { transform: translate3d(0,8%,0) scale(1,.92);
-    border-radius: 48% 52% 45% 55% / 55% 48% 52% 45%; }
+.lava-blob::before,
+.lava-blob::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.lava-blob::before {
+  inset: 14% 20% auto 16%;
+  height: 26%;
+  background: radial-gradient(ellipse at 40% 40%,
+    rgba(255, 255, 255, .8) 0%,
+    rgba(243, 251, 247, .4) 45%,
+    transparent 72%);
+  filter: blur(2px);
+}
+.lava-blob::after {
+  inset: auto 12% 10% 20%;
+  height: 36%;
+  background: linear-gradient(180deg,
+    transparent 0%,
+    rgba(99, 179, 164, .22) 55%,
+    rgba(126, 196, 184, .18) 100%);
+  filter: blur(1px);
+}
+.lava-blob.b1 {
+  left: 14%; width: 176px; height: 196px;
+  --lava-float: 38s; --lava-morph: 15s;
+  animation-delay: 0s, 0s, 0s;
+  background:
+    radial-gradient(circle at 30% 24%, var(--lava-hi) 0%, transparent 40%),
+    linear-gradient(148deg, var(--lava-hi), var(--lava-mint) 30%, var(--lava-sage) 55%, var(--lava-teal) 80%, var(--lava-deep));
+  background-size: 100% 100%, 150% 150%;
+}
+.lava-blob.b2 {
+  left: 34%; width: 154px; height: 178px;
+  --lava-float: 46s; --lava-morph: 18s;
+  animation-delay: -12s, -4s, -5s;
+  background:
+    radial-gradient(circle at 38% 30%, var(--lava-hi) 0%, transparent 42%),
+    linear-gradient(168deg, var(--lava-mint), var(--lava-sage) 35%, var(--lava-sea) 60%, var(--lava-deep));
+  background-size: 100% 100%, 150% 150%;
+}
+.lava-blob.b3 {
+  left: 52%; width: 198px; height: 214px;
+  --lava-float: 50s; --lava-morph: 17s;
+  animation-delay: -22s, -8s, -10s;
+  background:
+    radial-gradient(circle at 28% 28%, var(--lava-hi) 0%, transparent 44%),
+    linear-gradient(135deg, var(--lava-hi), var(--lava-sage) 28%, var(--lava-sea) 52%, var(--lava-teal) 75%, var(--lava-deep));
+  background-size: 100% 100%, 150% 150%;
+}
+.lava-blob.b4 {
+  left: 70%; width: 162px; height: 186px;
+  --lava-float: 42s; --lava-morph: 14s;
+  animation-delay: -6s, -2s, -3s;
+  background:
+    radial-gradient(circle at 35% 22%, var(--lava-hi) 0%, transparent 40%),
+    linear-gradient(160deg, var(--lava-mint), var(--lava-sea) 40%, var(--lava-teal) 70%, var(--lava-deep));
+  background-size: 100% 100%, 150% 150%;
+}
+@keyframes lavaGradShift {
+  0%, 100% { background-position: center, 25% 15%; }
+  50% { background-position: center, 75% 80%; }
+}
+.lava-speck {
+  position: absolute;
+  bottom: 4%;
+  display: block;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 35% 30%,
+      var(--lava-hi) 0%,
+      var(--lava-mint) 40%,
+      var(--lava-sea) 75%,
+      var(--lava-teal) 100%);
+  opacity: .72;
+  filter: blur(1.2px);
+  animation: lavaSpeck var(--speck-dur, 30s) cubic-bezier(0.4, 0.0, 0.2, 1) infinite;
+}
+.lava-speck.s1 { left: 24%; width: 28px; height: 32px; --speck-dur: 28s; animation-delay: -3s; }
+.lava-speck.s2 { left: 46%; width: 22px; height: 26px; --speck-dur: 33s; animation-delay: -11s; }
+.lava-speck.s3 { left: 62%; width: 34px; height: 38px; --speck-dur: 31s; animation-delay: -17s; }
+.lava-speck.s4 { left: 78%; width: 20px; height: 24px; --speck-dur: 26s; animation-delay: -7s; }
+/* Непрерывный цикл: выход из лужи → подъём → сразу спуск → слияние с лужей */
+@keyframes lavaFloat {
+  0% {
+    transform: translate3d(0, 14%, 0) scale(1.22, .72);
+  }
+  8% {
+    transform: translate3d(.3%, 6%, 0) scale(.68, 1.4);
+  }
+  18% {
+    transform: translate3d(-.7%, -12vh, 0) scale(.9, 1.14);
+  }
+  30% {
+    transform: translate3d(.9%, -30vh, 0) scale(.98, 1.04);
+  }
+  42% {
+    transform: translate3d(-.4%, -48vh, 0) scale(1.04, .96);
+  }
+  50% {
+    transform: translate3d(0, -58vh, 0) scale(1.1, .88);
+  }
+  58% {
+    transform: translate3d(.5%, -50vh, 0) scale(.85, 1.2);
+  }
+  70% {
+    transform: translate3d(-.8%, -32vh, 0) scale(.92, 1.1);
+  }
+  82% {
+    transform: translate3d(.4%, -14vh, 0) scale(1.0, 1.0);
+  }
+  90% {
+    transform: translate3d(0, -2vh, 0) scale(.7, 1.35);
+  }
+  96% {
+    transform: translate3d(0, 8%, 0) scale(1.08, .82);
+  }
+  100% {
+    transform: translate3d(0, 14%, 0) scale(1.22, .72);
+  }
+}
+@keyframes lavaMorph {
+  0%, 100% { border-radius: 46% 54% 42% 58% / 58% 46% 54% 42%; }
+  15% { border-radius: 60% 40% 55% 45% / 40% 60% 40% 60%; }
+  30% { border-radius: 40% 60% 48% 52% / 62% 38% 58% 42%; }
+  45% { border-radius: 55% 45% 38% 62% / 48% 52% 38% 62%; }
+  60% { border-radius: 42% 58% 58% 42% / 55% 45% 55% 45%; }
+  75% { border-radius: 58% 42% 45% 55% / 42% 58% 48% 52%; }
+  90% { border-radius: 48% 52% 60% 40% / 52% 48% 40% 60%; }
+}
+@keyframes lavaSpeck {
+  0% { transform: translate3d(0, 12%, 0) scale(1.15, .8); opacity: .4; }
+  10% { transform: translate3d(1%, 2%, 0) scale(.75, 1.25); opacity: .75; }
+  28% { transform: translate3d(2%, -20vh, 0) scale(.92, 1.1); opacity: .8; }
+  48% { transform: translate3d(-1.5%, -46vh, 0) scale(1.1, .9); opacity: .75; }
+  52% { transform: translate3d(0, -52vh, 0) scale(1.15, .85); opacity: .7; }
+  68% { transform: translate3d(1%, -30vh, 0) scale(.88, 1.15); opacity: .8; }
+  85% { transform: translate3d(-.5%, -8vh, 0) scale(.72, 1.3); opacity: .65; }
+  94% { transform: translate3d(0, 6%, 0) scale(1.05, .88); opacity: .5; }
+  100% { transform: translate3d(0, 12%, 0) scale(1.15, .8); opacity: .4; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lava-blob { animation: none !important; transform: none !important; opacity: .5; }
+  .lava-blob, .lava-speck, .lava-pool {
+    animation: none !important;
+    transform: none !important;
+    opacity: .55;
+  }
+  .aurora-band { animation: none !important; }
 }
+
+@media (max-width: 560px) {
+  .lava-blob.b1 { width: 120px; height: 136px; }
+  .lava-blob.b2 { width: 108px; height: 124px; }
+  .lava-blob.b3 { width: 132px; height: 148px; }
+  .lava-blob.b4 { width: 112px; height: 128px; }
+  .lava-speck { transform: scale(.85); }
+  .aurora { height: 48vh; opacity: .65; }
+}
+
 
 .wrap { max-width: 1280px; margin: 0 auto; padding: 0 22px; position: relative; z-index: 1; }
 a { color: var(--green); }
@@ -142,51 +432,71 @@ a { color: var(--green); }
 .first-screen {
   min-height: 100vh;
   display: flex; flex-direction: column; justify-content: center;
-  padding: 64px 0 36px; box-sizing: border-box;
+  padding: 20px 0 36px; box-sizing: border-box;
   position: relative; z-index: 1;
 }
-.first-screen .topbar {
-  position: absolute; top: 12px; left: 0; right: 0; margin: 0 auto;
-}
-.topbar {
-  position: relative; z-index: 2;
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  max-width: 1280px; margin: 0 auto; padding: 16px 22px 0;
-}
 .home-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 16px; border-radius: 999px; text-decoration: none;
+  position: absolute; top: 12px; left: 12px; z-index: 3;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: 999px; text-decoration: none;
   background: var(--panel); border: 1px solid var(--border); color: var(--text);
-  font: 650 13px/1 Manrope, "Segoe UI", sans-serif;
+  font: 650 13px/1.25 Manrope, "Segoe UI", sans-serif;
+  letter-spacing: .1px;
   box-shadow: var(--shadow-soft); transition: .15s;
+  white-space: nowrap;
 }
 .home-btn:hover {
   border-color: var(--green); color: var(--green-dark);
   box-shadow: 0 8px 20px rgba(47,143,99,.18); transform: translateY(-1px);
 }
+.topbar {
+  position: relative; z-index: 2;
+  display: flex; justify-content: center; width: 100%;
+  margin: 0 0 10px; padding: 4px 22px 0; box-sizing: border-box;
+}
+.report-intro {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; max-width: 760px; width: 100%;
+  box-sizing: border-box;
+}
+.report-intro .brand { margin: 0 0 8px; justify-content: center; }
+.report-intro h1 { margin: 0; }
+.report-intro .target { margin: 6px 0 0; }
 
 /* ---------- шапка с диаграммой ---------- */
-header { position: relative; overflow: hidden; padding: 14px 0 6px; z-index: 1; }
-header .web { position: absolute; top: -34px; right: -34px; opacity: .35; pointer-events: none; }
-header .web-left { position: absolute; bottom: -46px; left: -50px; opacity: .22; pointer-events: none; }
-.hero { display: grid; grid-template-columns: 290px 1fr; gap: 30px; align-items: start;
-  position: relative; z-index: 1; }
-@media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+header { position: relative; overflow: visible; padding: 8px 0 18px; z-index: 1; }
+.hero { position: relative; z-index: 1; }
+.hero-main > h2 { margin-top: 0; }
+.hero-align {
+  display: grid; grid-template-columns: minmax(300px, 360px) 1fr; gap: 28px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .hero-align { grid-template-columns: 1fr; }
+  .chart-card { margin-top: 0 !important; margin-bottom: 0 !important; height: auto !important; }
+}
 
 .chart-card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 22px;
-  padding: 18px 18px 14px; box-shadow: var(--shadow);
+  padding: 16px 18px 12px; box-shadow: 0 10px 18px rgba(22, 70, 48, .12);
+  box-sizing: border-box; display: flex; flex-direction: column; min-height: 0;
+  width: 100%;
 }
 .chart-card h3 { margin: 0 0 4px; font-size: 13px; color: var(--muted); font-weight: 700;
-  text-transform: uppercase; letter-spacing: .5px; text-align: center; }
-.chart-card .tip { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-align: center; }
-.donut { display: block; margin: 0 auto; }
+  text-transform: uppercase; letter-spacing: .5px; text-align: center; flex: none; }
+.chart-card .tip { margin: 0 0 8px; font-size: 12px; color: var(--muted); text-align: center;
+  flex: none; }
+.chart-card .donut-wrap {
+  flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+  min-height: 180px; margin: 4px 0;
+}
+.donut { display: block; width: min(100%, 300px); height: auto; aspect-ratio: 1; }
 .donut circle.seg { cursor: pointer; transition: opacity .15s; }
 .donut circle.seg:hover { opacity: .75; }
 .donut-total { font: 800 42px Manrope, "Segoe UI", sans-serif; fill: var(--text); }
 .donut-caption { font: 600 12.5px Manrope, "Segoe UI", sans-serif; fill: var(--muted);
   letter-spacing: .4px; }
-.legend { margin: 12px 0 0; padding: 0; list-style: none; }
+.legend { margin: 8px 0 0; padding: 0; list-style: none; flex: none; }
 .legend li { border-top: 1px dashed var(--border); }
 .legend li:first-child { border-top: none; }
 .legend button {
@@ -215,10 +525,12 @@ h2 .ico { flex: none; opacity: .8; }
 .section-note { margin: -4px 0 12px; color: var(--muted); font-size: 13.5px; }
 
 /* ---------- общая статистика ---------- */
+.stats-body { min-width: 0; }
 .stat-group { margin-bottom: 10px; }
+.stat-group:last-child { margin-bottom: 0; }
 .stat-group > h3 {
-  margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .7px;
-  color: var(--muted); font-weight: 700;
+  margin: 0 0 6px; font-size: 12px; line-height: 1.25; text-transform: uppercase;
+  letter-spacing: .7px; color: var(--muted); font-weight: 700;
 }
 .cards { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
@@ -447,6 +759,8 @@ pre { margin: 0; padding: 10px 12px; background: #F7FAF8; border: 1px solid var(
 .giga-head .giga-title { font-weight: 800; font-size: 16px; color: var(--green-dark); margin: 0; }
 .giga-head .giga-sub { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px;
   line-height: 1.35; }
+.giga-head .giga-warn { display: block; color: var(--muted); font-size: 11px; margin-top: 6px;
+  line-height: 1.4; opacity: .92; }
 .giga-head .giga-close { margin-left: auto; background: var(--panel); border: 1px solid var(--border);
   border-radius: 999px; width: 34px; height: 34px; font-size: 17px; line-height: 1; cursor: pointer;
   color: var(--muted); font-family: inherit; flex-shrink: 0; }
@@ -492,7 +806,7 @@ footer { margin-top: 20px; color: var(--muted); font-size: 12.5px; text-align: c
 /* ---------- печатная версия (сохранение в PDF) ---------- */
 #pdf-report, #pdf-filtered { display: none; }
 @media print {
-  .atmosphere, .lava-lamp, .lava-blob, .lava-pool { display: none !important; }
+  .atmosphere, .lava-lamp, .lava-blob, .lava-pool, .lava-goo, .lava-heat, .lava-speck, .aurora, .aurora-band { display: none !important; }
   @page { size: A4; margin: 12mm; }
   body { background: #FFFFFF !important; padding: 0; }
   body::before { display: none !important; }
@@ -869,6 +1183,44 @@ function printFiltered() {
   window.print();
   setTimeout(function () { document.body.classList.remove('print-filtered'); }, 500);
 }
+function chartShadowBottomExtent(el) {
+  var sh = getComputedStyle(el).boxShadow || '';
+  if (!sh || sh === 'none') { return 0; }
+  var parts = sh.match(/-?[\d.]+px/g);
+  if (!parts || parts.length < 3) { return 10; }
+  var y = parseFloat(parts[1]) || 0;
+  var blur = parseFloat(parts[2]) || 0;
+  var spread = parts.length > 3 ? (parseFloat(parts[3]) || 0) : 0;
+  // Нижняя видимая граница тени ≈ смещение + размытие + spread
+  return Math.max(0, y + blur + spread);
+}
+function syncChartToStats() {
+  var align = document.querySelector('.hero-align');
+  var chart = document.querySelector('.chart-card');
+  var firstCard = document.querySelector('.stats-body .stat-group:first-child .card');
+  var reqLbl = null;
+  document.querySelectorAll('.stats-body .card .lbl').forEach(function (el) {
+    if (el.textContent.trim() === 'Запросов к сайту') { reqLbl = el; }
+  });
+  var reqCard = reqLbl ? reqLbl.closest('.card') : null;
+  if (!align || !chart || !firstCard || !reqCard || window.matchMedia('(max-width: 900px)').matches) {
+    if (chart) {
+      chart.style.marginTop = '';
+      chart.style.height = '';
+    }
+    return;
+  }
+  chart.style.marginTop = '0px';
+  chart.style.height = 'auto';
+  var alignBox = align.getBoundingClientRect();
+  var firstTop = firstCard.getBoundingClientRect().top;
+  var reqBottom = reqCard.getBoundingClientRect().bottom;
+  var shadowExtent = chartShadowBottomExtent(chart);
+  var topGap = Math.max(0, firstTop - alignBox.top);
+  var targetHeight = Math.max(120, Math.round(reqBottom - firstTop - shadowExtent));
+  chart.style.marginTop = Math.round(topGap) + 'px';
+  chart.style.height = targetHeight + 'px';
+}
 document.addEventListener('DOMContentLoaded', function () {
   initGroup('button.f.sev');
   initGroup('button.f.cat-f');
@@ -961,6 +1313,15 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
   applyFilters();
+  syncChartToStats();
+  requestAnimationFrame(syncChartToStats);
+  window.addEventListener('resize', syncChartToStats);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () {
+      syncChartToStats();
+      requestAnimationFrame(syncChartToStats);
+    });
+  }
 });
 """
 
@@ -978,30 +1339,6 @@ SPIDER_ICON = """
 </svg>
 """
 
-WEB_CORNER = """
-<svg class="web" width="230" height="230" viewBox="0 0 200 200" aria-hidden="true">
-  <g fill="none" stroke="#9AA39D" stroke-width="1.1">
-    <path d="M200 0 L0 200"/><path d="M200 0 L40 200"/><path d="M200 0 L110 200"/>
-    <path d="M200 0 L200 200"/><path d="M200 0 L0 120"/><path d="M200 0 L0 40"/>
-    <path d="M200 40 Q140 60 150 200" transform="rotate(0)"/>
-    <path d="M170 0 Q120 70 30 90" />
-    <path d="M200 70 Q110 90 70 200"/>
-    <path d="M200 110 Q140 140 120 200"/>
-    <path d="M130 0 Q90 40 10 60"/>
-  </g>
-</svg>
-"""
-
-WEB_LEFT = """
-<svg class="web-left" width="200" height="200" viewBox="0 0 200 200" aria-hidden="true">
-  <g fill="none" stroke="#9AA39D" stroke-width="1">
-    <path d="M0 200 L200 0"/><path d="M0 200 L160 0"/><path d="M0 200 L90 0"/>
-    <path d="M0 200 L0 0"/><path d="M0 200 L200 80"/><path d="M0 200 L200 160"/>
-    <path d="M0 160 Q60 140 50 0"/><path d="M0 120 Q100 100 130 0"/>
-    <path d="M0 70 Q140 60 190 0"/>
-  </g>
-</svg>
-"""
 
 SPIDER_MARK = """
 <svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
@@ -1060,43 +1397,30 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
     )
 
     parts.append(
-        '<div class="atmosphere" aria-hidden="true">'
-        '<div class="lava-lamp">'
-        '<div class="lava-pool"></div>'
-        '<span class="lava-blob b1"></span>'
-        '<span class="lava-blob b2"></span>'
-        '<span class="lava-blob b3"></span>'
-        '<span class="lava-blob b4"></span>'
-        '<span class="lava-blob b5"></span>'
-        '<span class="lava-blob b6"></span>'
-        '<span class="lava-blob b7"></span>'
-        '<span class="lava-blob b8"></span>'
-        '<span class="lava-blob b9"></span>'
-        '</div></div>'
+        '<div class="atmosphere" aria-hidden="true"><div class="aurora"><span class="aurora-band a1"></span><span class="aurora-band a2"></span><span class="aurora-band a3"></span></div><div class="lava-lamp"><svg class="lava-svg" aria-hidden="true" focusable="false"><defs><filter id="lava-goo" x="-40%" y="-40%" width="180%" height="180%" color-interpolation-filters="sRGB"><feGaussianBlur in="SourceGraphic" stdDeviation="15" result="blur"/><feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 18 -9" result="goo"/></filter></defs></svg><div class="lava-heat"></div><div class="lava-goo"><div class="lava-pool"></div><span class="lava-blob b1"></span><span class="lava-blob b2"></span><span class="lava-blob b3"></span><span class="lava-blob b4"></span><span class="lava-speck s1"></span><span class="lava-speck s2"></span><span class="lava-speck s3"></span><span class="lava-speck s4"></span></div></div></div>'
     )
 
     # ---------- главный экран: диаграмма, заголовок, статистика ----------
     parts.append('<div class="first-screen">')
     parts.append(
+        "<a class=\"home-btn\" href=\"index.html\">← Главный экран</a>"
         "<div class=\"topbar\">"
-        "<a class=\"home-btn\" href=\"index.html\">← Главный экран Spyvision</a>"
+        "<div class=\"report-intro\">"
+        f"<div class=\"brand\">{SPIDER_MARK}<span>Spyvision · сканер безопасности</span></div>"
+        "<h1>Отчёт сканирования безопасности веб-приложения</h1>"
+        f"<div class=\"target\">Цель: <b>{_link(target)}</b> · "
+        f"отчёт сформирован {generated}</div>"
+        "</div>"
         "</div>"
     )
     parts.append("<header>")
-    parts.append(WEB_CORNER)
-    parts.append(WEB_LEFT)
     parts.append("<div class=\"wrap hero\">")
-    parts.append(_chart_card(by_severity, total))
     parts.append("<div class=\"hero-main\">")
-    parts.append(f"<div class=\"brand\">{SPIDER_MARK}<span>Spyvision · сканер безопасности</span></div>")
-    parts.append("<h1>Отчёт сканирования безопасности веб-приложения</h1>")
-    parts.append(
-        f"<div class=\"target\">Цель: <b>{_link(target)}</b> · "
-        f"отчёт сформирован {generated}</div>"
-    )
     parts.append(f"<h2>{SPIDER_ICON}Общая статистика</h2>")
+    parts.append("<div class=\"hero-align\">")
+    parts.append(_chart_card(by_severity, total))
     parts.append(_stat_cards(stats, by_severity, by_category, len(critical), total))
-    parts.append("</div></div></header>\n")
+    parts.append("</div></div></div></header>\n")
 
     parts.append("<div class=\"wrap\">")
 
@@ -1186,7 +1510,8 @@ def _chart_card(by_severity: Dict[str, int], total: int) -> str:
         "<div class=\"chart-card\">"
         "<h3>Статистика уязвимостей</h3>"
         "<p class=\"tip\">Нажмите на уровень, чтобы увидеть эти находки</p>"
-        "<svg class=\"donut\" width=\"220\" height=\"220\" viewBox=\"0 0 220 220\" "
+        "<div class=\"donut-wrap\">"
+        "<svg class=\"donut\" viewBox=\"0 0 220 220\" "
         "role=\"img\" aria-label=\"Распределение находок по уровням критичности\">"
         f"<circle cx=\"110\" cy=\"110\" r=\"{radius}\" fill=\"none\" stroke=\"#EDF3EF\" "
         f"stroke-width=\"{stroke}\"/>"
@@ -1196,6 +1521,7 @@ def _chart_card(by_severity: Dict[str, int], total: int) -> str:
         "<text class=\"donut-caption\" x=\"110\" y=\"132\" text-anchor=\"middle\">"
         "всего находок</text>"
         "</svg>"
+        "</div>"
         "<ul class=\"legend\">" + "".join(legend) + "</ul>"
         "</div>"
     )
@@ -1250,7 +1576,7 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
         _card(f"{errors}", "Запросов без ответа",
               "таймаут, отказ соединения или ошибка сети"),
         _card(f"{stats.get('duration', 0)}<small> с</small>", "Длительность сканирования",
-              "между запросами выдерживается пауза 0.5 с"),
+              "между запросами выдерживается пауза 0.1 с"),
     ]
 
     groups = (
@@ -1258,12 +1584,13 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
         ("Что найдено", found),
         ("Как выполнялось сканирование", how),
     )
-    html_parts: List[str] = []
+    html_parts: List[str] = ["<div class=\"stats-body\">"]
     for title, cards in groups:
         html_parts.append(
             f"<div class=\"stat-group\"><h3>{esc(title)}</h3>"
             f"<div class=\"cards\">{''.join(cards)}</div></div>"
         )
+    html_parts.append("</div>")
     return "".join(html_parts)
 
 
@@ -1314,7 +1641,10 @@ def _giga_dialog() -> str:
         '<div class="giga-head">'
         '<div><p class="giga-title" id="giga-title">ГигаЧат</p>'
         '<span class="giga-sub">Эксперт в сфере информационной безопасности · '
-        'разбор находки и советы по исправлению</span></div>'
+        'разбор находки и советы по исправлению</span>'
+        '<span class="giga-warn">Вы соглашаетесь с тем, что написав информацию '
+        'вы делитесь не только с ботом, но и с серверами ИИ. '
+        'SpyVision не несёт ответственность.</span></div>'
         '<button type="button" class="giga-close" data-giga-close '
         'title="Закрыть (Esc)" aria-label="Закрыть диалог">×</button>'
         '</div>'

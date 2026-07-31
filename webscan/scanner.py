@@ -31,7 +31,7 @@ class ScanConfig:
     output: str = "report.html"
     max_requests: int = MAX_REQUESTS
     timeout: float = 5.0
-    delay: float = 0.5
+    delay: float = 0.1
     verify_tls: bool = True
     active: bool = True
     test_post_forms: bool = True

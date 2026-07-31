@@ -5,7 +5,7 @@
   * общее число HTTP-запросов не более 600;
   * обход сайта не более 60 страниц в пределах домена;
   * размер читаемого тела ответа не более 1 МБ;
-  * принудительная пауза 0.5 с между запросами.
+  * принудительная пауза 0.1 с между запросами.
 """
 
 import time
@@ -23,7 +23,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 MAX_TIMEOUT = 5.0
-MIN_DELAY = 0.5
+MIN_DELAY = 0.1
 MAX_BODY_BYTES = 1024 * 1024  # 1 МБ
 MAX_REQUESTS = 600  # жёсткий потолок общего числа HTTP-запросов за сканирование
 MAX_PAGES = 60  # жёсткий потолок числа страниц обхода в пределах домена
@@ -65,7 +65,6 @@ class HttpClient:
                 "User-Agent": user_agent,
                 "Accept": "*/*",
                 "Accept-Encoding": "gzip, deflate",
-                "Connection": "close",
             }
         )
         self._last_request_at = 0.0

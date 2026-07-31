@@ -70,8 +70,9 @@ def run_waf_checks(
             )
         )
 
-    # Даже без явного имени WAF пробуем обход, если прямой payload режется
-    findings.extend(_try_bypasses(client, pages, reserve, waf_name=waf_name))
+    # Обход имеет смысл только при обнаруженном WAF — иначе это лишние запросы.
+    if waf_name:
+        findings.extend(_try_bypasses(client, pages, reserve, waf_name=waf_name))
     return findings
 
 
