@@ -570,6 +570,128 @@
     }
     .hint a:hover { color: var(--green-dark); border-bottom-color: var(--green); }
 
+    /* ---------- переключатель режима pentest ---------- */
+    .pentest-box {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.78);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 2px 10px rgba(38, 48, 43, .05);
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .pentest-box:has(.pentest-toggle:checked) {
+      border-color: var(--mint-deep);
+      box-shadow: 0 2px 14px rgba(42, 143, 92, .1);
+    }
+    .pentest-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .pentest-switch {
+      position: relative;
+      flex: none;
+      width: 42px;
+      height: 24px;
+    }
+    .pentest-switch input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+    .pentest-switch .track {
+      position: absolute;
+      inset: 0;
+      border-radius: 999px;
+      background: var(--iron-light);
+      transition: background .2s;
+    }
+    .pentest-switch .thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(38, 48, 43, .3);
+      transition: transform .2s;
+    }
+    .pentest-switch input:checked ~ .track { background: var(--green); }
+    .pentest-switch input:checked ~ .thumb { transform: translateX(18px); }
+    .pentest-switch input:focus-visible ~ .track { outline: 2px solid var(--green); outline-offset: 2px; }
+    .pentest-label {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .pentest-label small {
+      display: block;
+      margin-top: 1px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    .pentest-consent {
+      max-height: 0;
+      overflow: hidden;
+      opacity: 0;
+      transition: max-height .25s ease, opacity .2s ease, margin-top .25s ease;
+    }
+    .pentest-box.open .pentest-consent {
+      max-height: 320px;
+      opacity: 1;
+      margin-top: 12px;
+    }
+    .pentest-consent-inner {
+      padding-top: 12px;
+      border-top: 1px dashed var(--border);
+    }
+    .pentest-scope {
+      margin: 0 0 10px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+    .pentest-scope b { color: var(--moss); font-weight: 600; }
+    .pentest-confirm {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .pentest-confirm input {
+      flex: none;
+      width: 17px;
+      height: 17px;
+      margin-top: 1px;
+      accent-color: var(--green);
+      cursor: pointer;
+    }
+    .pentest-confirm span {
+      font-size: 12.5px;
+      line-height: 1.5;
+      font-weight: 500;
+      color: var(--text);
+    }
+    .pentest-disabled-note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--high);
+      display: none;
+    }
+    .pentest-box.disabled .pentest-disabled-note { display: block; }
+    .pentest-box.disabled .pentest-row { opacity: .55; cursor: not-allowed; }
+    .pentest-box.disabled .pentest-switch { pointer-events: none; }
+
     .matrix-digits {
       font-family: Consolas, "Courier New", monospace;
       font-size: 5px; fill: #3F9D75; opacity: .85;
@@ -983,8 +1105,43 @@
       <p class="hint">
         Примеры:
         <a href="#" data-url="https://example.com">https://example.com</a>
-        <a href="#" data-url="127.0.0.1:8099">127.0.0.1:8099</a>
+        <a href="#" data-url="http://127.0.0.1:5000/">http://127.0.0.1:5000/</a>
       </p>
+
+      <div class="pentest-box" id="pentestBox">
+        <label class="pentest-row" for="pentestToggle">
+          <span class="pentest-switch">
+            <input type="checkbox" id="pentestToggle" />
+            <span class="track" aria-hidden="true"></span>
+            <span class="thumb" aria-hidden="true"></span>
+          </span>
+          <span class="pentest-label">
+            Расширенный анализ (pentest)
+            <small>SSRF, обход авторизации через SQLi, слепая SQLi по времени, подтверждение CVE</small>
+          </span>
+        </label>
+        <div class="pentest-consent" id="pentestConsent">
+          <div class="pentest-consent-inner">
+            <p class="pentest-scope">
+              Режим отправляет дополнительные пробы: обращения к внутренним адресам и
+              cloud-metadata (SSRF), вход в найденные формы с SQLi-payload'ами для подтверждения
+              обхода авторизации, намеренные задержки ответа (слепая SQL-инъекция по времени) и
+              обращения по известным путям для подтверждения конкретных CVE. Это
+              <b>безопасные, неразрушающие</b> пробы (ничего не удаляется и не изменяется), но они
+              активнее обычного анализа и предназначены только для систем, которые принадлежат вам
+              или на тестирование которых у вас есть разрешение владельца.
+            </p>
+            <label class="pentest-confirm" for="pentestConsentCheck">
+              <input type="checkbox" id="pentestConsentCheck" />
+              <span>Подтверждаю, что имею разрешение владельца на тестирование указанного адреса
+                этими методами, и принимаю ответственность за результат.</span>
+            </label>
+          </div>
+        </div>
+        <p class="pentest-disabled-note" id="pentestDisabledNote">
+          Недоступно: сервер запущен с флагом --no-active, активные проверки выключены.
+        </p>
+      </div>
     </form>
   </div>
 
@@ -1056,6 +1213,10 @@
       var button = form.querySelector(".scan-btn");
       var overlay = document.getElementById("scanOverlay");
       var statusEl = document.getElementById("scanStatus");
+      var pentestBox = document.getElementById("pentestBox");
+      var pentestToggle = document.getElementById("pentestToggle");
+      var pentestConsentCheck = document.getElementById("pentestConsentCheck");
+      var pentestUnavailable = false; // сервер запущен с --no-active — переключатель не оживает
       var statusTimer = null;
       var stageTimer = null;
       var realStage = "";
@@ -1090,6 +1251,8 @@
       function setBusy(busy) {
         button.disabled = busy;
         input.disabled = busy;
+        if (pentestToggle && !pentestUnavailable) pentestToggle.disabled = busy;
+        if (pentestConsentCheck) pentestConsentCheck.disabled = busy;
         button.textContent = busy ? "Сканирование…" : "Сканировать";
         if (busy) {
           showScanOverlay();
@@ -1152,6 +1315,43 @@
         return location.protocol === "file:";
       }
 
+      // Переключатель pentest: раскрывает/прячет блок подтверждения полномочий.
+      // Сам факт переключения ничего не включает — без отдельной галочки согласия
+      // режим не будет отправлен на сервер (проверяется и здесь, и на сервере).
+      if (pentestToggle && pentestBox) {
+        pentestToggle.addEventListener("change", function () {
+          pentestBox.classList.toggle("open", pentestToggle.checked);
+          if (!pentestToggle.checked && pentestConsentCheck) {
+            pentestConsentCheck.checked = false;
+          }
+          showError("");
+        });
+      }
+
+      // Если сервер запущен с --no-active, активные (и тем более pentest) проверки
+      // недоступны — отключаем переключатель и объясняем почему.
+      if (!isFilePage() && pentestBox) {
+        fetch("/api/status", { cache: "no-store" })
+          .then(function (resp) { return resp.json(); })
+          .then(function (data) {
+            if (data && data.active === false) {
+              pentestUnavailable = true;
+              pentestBox.classList.add("disabled");
+              pentestBox.classList.remove("open");
+              pentestToggle.checked = false;
+              pentestToggle.disabled = true;
+            } else if (data && data.pentest_default) {
+              // Сервер запущен с --pentest --i-have-permission-to-attack: оператор уже
+              // подтвердил полномочия при старте. Предзаполняем переключатель и согласие,
+              // но оставляем их обычными чекбоксами — можно снять перед конкретным сканом.
+              pentestToggle.checked = true;
+              if (pentestConsentCheck) pentestConsentCheck.checked = true;
+              pentestBox.classList.add("open");
+            }
+          })
+          .catch(function () { /* главный экран работает и без этой подсказки */ });
+      }
+
       form.addEventListener("submit", function (e) {
         e.preventDefault();
         var value = input.value.trim();
@@ -1169,12 +1369,23 @@
           showError("Не удалось связаться с локальным сервером Spyvision. Запустите: python scan.py");
           return;
         }
+        var pentestWanted = !!(pentestToggle && pentestToggle.checked);
+        var pentestConsent = !!(pentestConsentCheck && pentestConsentCheck.checked);
+        if (pentestWanted && !pentestConsent) {
+          showError("Подтвердите разрешение на pentest-тестирование этого адреса (галочка ниже переключателя)");
+          if (pentestConsentCheck) pentestConsentCheck.focus();
+          return;
+        }
         setBusy(true);
         showError("");
         fetch("/api/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: value })
+          body: JSON.stringify({
+            url: value,
+            pentest: pentestWanted,
+            pentest_consent: pentestConsent
+          })
         })
           .then(function (resp) {
             return resp.json().then(function (data) {
