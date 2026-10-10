@@ -1,0 +1,36 @@
+# ВАЖНО: Папки библиотек и окружений (чтобы Claude не сжег лимиты)
+node_modules/
+venv/
+.venv/
+env/
+bin/
+obj/
+target/
+
+# БЕЗОПАСНОСТЬ: Файлы с вашими паролями и API-ключами
+.env
+.env.*
+*.pem
+*.key
+
+# МУСОР: Служебные файлы операционных систем и редакторов
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ТЯЖЕЛЫЕ ФАЙЛЫ: Базы данных и архивы
+*.db
+*.sqlite
+*.sqlite3
+*.zip
+*.tar.gz
+
+# Python и сборка
+__pycache__/
+*.pyc
+build/
+dist/
+
+# Сгенерированные отчёты
+report.html

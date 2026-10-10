@@ -1,16 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 """Сборка Spyvision.exe (PyInstaller)."""
 
+import os
+
 block_cipher = None
+
+# Фон главного экрана необязателен: landing.py работает и без него.
+datas = [('webscan/landing.html', 'webscan')]
+if os.path.exists('webscan/bg.jfif'):
+    datas.append(('webscan/bg.jfif', 'webscan'))
+
+# Базы уязвимостей (KEV, ExploitDB, ответы NVD) в exe НЕ вшиваются:
+# они скачиваются в кэш пользователя ~/.spyvision/cache.
 
 a = Analysis(
     ['scan.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('webscan/landing.html', 'webscan'),
-        ('webscan/bg.jfif', 'webscan'),
-    ],
+    datas=datas,
     hiddenimports=[
         'webscan',
         'webscan.cli',
@@ -18,9 +25,18 @@ a = Analysis(
         'webscan.landing',
         'webscan.report',
         'webscan.scanner',
+        'webscan.fingerprint',
+        'webscan.vulndb',
+        'webscan.vulndb.cache',
+        'webscan.vulndb.catalog_http',
+        'webscan.vulndb.exploitdb',
+        'webscan.vulndb.kev',
+        'webscan.vulndb.nvd',
+        'webscan.vulndb.scoring',
+        'webscan.vulndb.versions',
+        'webscan.report_vulns',
         'webscan.knowledge',
         'webscan.fixes',
-        'webscan.gigachat_fix',
         'webscan.checks.active',
         'webscan.checks.headers',
         'webscan.checks.cookies',

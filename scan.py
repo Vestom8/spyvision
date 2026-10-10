@@ -27,6 +27,8 @@ def _project_root() -> Path:
 
 
 def _bootstrap() -> None:
+    if getattr(sys, "frozen", False):
+        return  # Spyvision.exe: пакет webscan вшит PyInstaller, каталога на диске нет
     root = _project_root()
     root_s = str(root)
     if root_s not in sys.path:

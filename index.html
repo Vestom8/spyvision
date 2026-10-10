@@ -1057,6 +1057,8 @@
       var overlay = document.getElementById("scanOverlay");
       var statusEl = document.getElementById("scanStatus");
       var statusTimer = null;
+      var stageTimer = null;
+      var realStage = "";
       var STATUS_MESSAGES = [
         "Подключаемся к сайту",
         "Обходим страницы",
@@ -1068,6 +1070,7 @@
         "Проверяем HTTPS, TLS и CORS",
         "Ищем признаки WAF и обходы фильтров",
         "DAST: активные тесты внедрения",
+        "Сверяем версии с NVD, KEV и ExploitDB",
         "Собираем доказательства",
         "Формируем отчёт"
       ];
@@ -1104,8 +1107,24 @@
         clearInterval(statusTimer);
         statusTimer = setInterval(function () {
           i = (i + 1) % STATUS_MESSAGES.length;
-          statusEl.textContent = STATUS_MESSAGES[i];
+          if (!realStage) statusEl.textContent = STATUS_MESSAGES[i];
         }, 3200);
+        // Реальный этап берём у сервера; заглушки показываем, пока он не ответил.
+        realStage = "";
+        clearInterval(stageTimer);
+        stageTimer = setInterval(pollStage, 1200);
+      }
+
+      function pollStage() {
+        fetch("/api/status", { cache: "no-store" })
+          .then(function (resp) { return resp.json(); })
+          .then(function (data) {
+            if (data && data.scanning && data.stage) {
+              realStage = data.stage;
+              statusEl.textContent = realStage;
+            }
+          })
+          .catch(function () { /* сервер занят — повторим на следующем тике */ });
       }
 
       function hideScanOverlay() {
@@ -1114,6 +1133,9 @@
         overlay.setAttribute("aria-hidden", "true");
         clearInterval(statusTimer);
         statusTimer = null;
+        clearInterval(stageTimer);
+        stageTimer = null;
+        realStage = "";
       }
 
       function looksLikeUrl(value) {
