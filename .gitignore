@@ -34,3 +34,6 @@ dist/
 
 # Сгенерированные отчёты
 report.html
+
+# Кэш баз уязвимостей (NVD, KEV, ExploitDB, БДУ) — большие файлы, в git не нужны
+.spyvision/
