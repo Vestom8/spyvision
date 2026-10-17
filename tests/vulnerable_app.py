@@ -61,8 +61,9 @@ PAGES = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "TestServer/1.2.3"
-    sys_version = "Python/3.11.0-test"
+    # Баннер уязвимой версии — для проверки этапа 6 (CVE-2021-41773, в CISA KEV).
+    server_version = "Apache/2.4.49 (Unix)"
+    sys_version = ""
 
     def log_message(self, fmt, *args):  # тише в консоли
         pass

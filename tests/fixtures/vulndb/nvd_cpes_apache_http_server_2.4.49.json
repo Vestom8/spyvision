@@ -1,0 +1,35 @@
+{
+ "resultsPerPage": 1,
+ "startIndex": 0,
+ "totalResults": 1,
+ "format": "NVD_CPE",
+ "version": "2.0",
+ "timestamp": "2026-09-30T19:59:53.253",
+ "products": [
+  {
+   "cpe": {
+    "deprecated": false,
+    "cpeName": "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*",
+    "cpeNameId": "10E70F95-EB64-4262-A822-9055AAB8FE76",
+    "lastModified": "2021-09-30T14:54:40.147",
+    "created": "2021-09-30T14:53:32.433",
+    "titles": [
+     {
+      "title": "Apache Software Foundation Apache HTTP Server 2.4.49",
+      "lang": "en"
+     }
+    ],
+    "refs": [
+     {
+      "ref": "https://httpd.apache.org/",
+      "type": "Product"
+     },
+     {
+      "ref": "https://github.com/apache/httpd/",
+      "type": "Version"
+     }
+    ]
+   }
+  }
+ ]
+}

@@ -17,7 +17,7 @@ from ..utils import truncate
 SAST_RULES: Tuple[Tuple[str, str, str, str, Pattern[str], str], ...] = (
     (
         "sast_eval",
-        HIGH,
+        MEDIUM,
         VULN,
         "В коде страницы вызывается eval / new Function",
         re.compile(
@@ -32,8 +32,10 @@ SAST_RULES: Tuple[Tuple[str, str, str, str, Pattern[str], str], ...] = (
         VULN,
         "Присвоение innerHTML / document.write без безопасной обёртки",
         re.compile(
-            r"(?i)(?:\.innerHTML\s*=|\.outerHTML\s*=|document\.write\s*\(|"
-            r"insertAdjacentHTML\s*\()",
+            r"(?i)(?:\.(?:inner|outer)HTML\s*\+?=\s*(?=\S)(?!(?:'[^'+\\]*'|\"[^\"+\\]*\"|`[^`$\\]*`)\s*"
+            r"(?:[;,)}\]]|$))"
+            r"|document\.write(?:ln)?\s*\(\s*(?=\S)(?!(?:'[^'+\\]*'|\"[^\"+\\]*\")\s*\))"
+            r"|insertAdjacentHTML\s*\()",
         ),
         "Не вставляйте пользовательские данные через innerHTML/document.write. "
         "Используйте textContent, DOM API или библиотеку с автоэкранированием.",
@@ -103,13 +105,22 @@ SAST_RULES: Tuple[Tuple[str, str, str, str, Pattern[str], str], ...] = (
         VULN,
         "Похоже на сборку SQL-запроса конкатенацией строк",
         re.compile(
-            r"(?i)(?:SELECT|INSERT|UPDATE|DELETE)\s+[^;\"']{0,80}"
-            r"(?:\+|\$\{|`[^`]*\$\{)",
+            r"(?i)\b(?:\w*query|execute|exec|prepare|raw|sql)\s*\(\s*[\"'`]\s*"
+            r"(?:SELECT\b|INSERT\s+INTO\b|UPDATE\b|DELETE\s+FROM\b)[^\"'`;]{0,120}"
+            r"(?:[\"']\s*\+|\$\{)",
         ),
         "Не собирайте SQL строками. Используйте параметризованные запросы "
         "на сервере; клиентский SQL-код не должен содержать логику доступа к БД.",
     ),
 )
+
+# Правила, относящиеся к исполняемому JavaScript: по тексту страницы (абзацы, <pre>, <code>
+# с примерами кода) они давали бы ложные срабатывания, поэтому ищутся только внутри <script>.
+JS_ONLY_KINDS = frozenset({
+    "sast_eval", "sast_innerhtml", "sast_dangerously_set_html", "sast_sql_concat",
+    "sast_debug_flag",
+})
+_SCRIPT_BLOCK = re.compile(r"(?is)<script\b[^>]*>(.*?)</script>")
 
 _POSTMESSAGE = re.compile(
     r"(?i)addEventListener\s*\(\s*['\"]message['\"]",
@@ -128,10 +139,15 @@ def check_sast(page: Page) -> List[Finding]:
     findings: List[Finding] = []
     # Ограничиваем объём для скорости на больших страницах
     haystack = body[:250_000]
+    if "html" in ctype:
+        code = "\n".join(_SCRIPT_BLOCK.findall(haystack))
+    else:
+        code = haystack
     seen = set()
 
     for kind, severity, category, title, pattern, recommendation in SAST_RULES:
-        match = pattern.search(haystack)
+        text = code if kind in JS_ONLY_KINDS else haystack
+        match = pattern.search(text)
         if not match:
             continue
         key = (kind, page.url)
@@ -139,12 +155,12 @@ def check_sast(page: Page) -> List[Finding]:
             continue
         seen.add(key)
         findings.append(
-            _finding(page, kind, severity, category, title, recommendation, match, haystack)
+            _finding(page, kind, severity, category, title, recommendation, match, text)
         )
 
     # postMessage: есть слушатель, но в окрестности нет проверки origin
-    for match in _POSTMESSAGE.finditer(haystack):
-        window = haystack[match.start(): match.start() + 320]
+    for match in _POSTMESSAGE.finditer(code):
+        window = code[match.start(): match.start() + 320]
         if ".origin" in window:
             continue
         key = ("sast_postmessage_open", page.url)
@@ -160,7 +176,7 @@ def check_sast(page: Page) -> List[Finding]:
                 "Обработчик postMessage без проверки origin",
                 "В обработчике message всегда проверяйте event.origin и формат данных.",
                 match,
-                haystack,
+                code,
             )
         )
         break
@@ -180,7 +196,7 @@ def _finding(page, kind, severity, category, title, recommendation, match, hayst
         request=f"GET {page.url} (статический анализ ответа)",
         evidence=truncate(f"Фрагмент кода:\n…{evidence}…", 700),
         confidence=CONFIRMED if kind in (
-            "sast_aws_key", "sast_private_key", "sast_eval",
+            "sast_aws_key", "sast_private_key",
         ) else SUSPECTED,
         kind=kind,
     )

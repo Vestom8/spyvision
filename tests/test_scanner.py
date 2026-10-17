@@ -304,7 +304,7 @@ class TestReport(unittest.TestCase):
         html = build_report(findings, {"target": "https://a.test/", "pages": 3, "checks": 10,
                                        "requests_made": 12, "max_requests": 100, "max_pages": 20,
                                        "max_depth": 2, "duration": 2.0, "page_list": []})
-        self.assertIn("Общая статистика", html)
+        self.assertIn("Статистика уязвимостей", html)
         self.assertIn("Найденные проблемы", html)
         for severity in (HIGH, MEDIUM, LOW, INFO):
             self.assertIn(f'data-severity="{severity}"', html)
@@ -321,7 +321,7 @@ class TestReport(unittest.TestCase):
         header = html.split("</header>")[0]
         self.assertIn("Отчёт сканирования безопасности веб-приложения", header)
         self.assertIn("class=\"donut\"", header)
-        self.assertIn("Общая статистика", header)
+        self.assertIn("Статистика уязвимостей", header)
         # четыре категории легенды и общее число находок в центре
         for label in ("Высокая", "Средняя", "Низкая", "Безопасно"):
             self.assertIn(label, header)
@@ -524,6 +524,7 @@ class TestEndToEnd(unittest.TestCase):
                 max_depth=1,
                 output=output,
                 max_requests=40,
+                use_vuln_db=False,
             )
             result = run_scan(config)
 
@@ -551,7 +552,7 @@ class TestEndToEnd(unittest.TestCase):
 
     def test_external_links_are_not_visited(self):
         config = ScanConfig(url=f"http://127.0.0.1:{self.port}", max_pages=4, max_depth=1,
-                            max_requests=25, active=False)
+                            max_requests=25, active=False, use_vuln_db=False)
         result = run_scan(config)
         for page in result.stats["page_list"]:
             self.assertIn(f"127.0.0.1:{self.port}", page["url"])

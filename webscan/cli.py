@@ -6,17 +6,20 @@ import sys
 from typing import Callable, List, Optional
 from urllib.parse import urlparse
 
-from .http_client import MAX_PAGES, MAX_REQUESTS, MAX_TIMEOUT, MIN_DELAY
+from .http_client import (DEFAULT_CONCURRENCY, MAX_CONCURRENCY, MAX_PAGES, MAX_REQUESTS,
+                          MAX_TIMEOUT, MIN_DELAY)
 from .models import HIGH, INFO, LOW, MEDIUM
 from .report import build_report
 from .scanner import ScanConfig, run_scan
+from .vulndb import DEFAULT_MAX_CVES
 from .utils import host_of, is_valid_host, supports_tls
 
 DESCRIPTION = """
 Сканер типовых ошибок конфигурации и базовых уязвимостей веб-приложения.
 Выполняет только безопасные проверки: ничего не удаляет, не изменяет данные
-и не передаёт информацию третьим лицам. Используйте только для систем,
-на тестирование которых у вас есть разрешение.
+и не передаёт содержимое сайта третьим лицам. Для каталожного анализа в NVD
+передаются только название и версия найденного компонента/CPE. Используйте
+только для систем, на тестирование которых у вас есть разрешение.
 """
 
 EPILOG = """
@@ -26,6 +29,9 @@ EPILOG = """
   python scan.py https://example.com
   python scan.py https://example.com --max-pages 10 --max-depth 1 --output otchet.html
   python scan.py http://127.0.0.1:8000 --no-active --verbose
+  python scan.py https://example.com --update-vuln-db
+  python scan.py --update-vuln-db       (только обновить базы KEV, ExploitDB и выйти)
+  python scan.py https://example.com --vuln-db-offline
 
 Без аргумента URL открывается локальный веб-интерфейс. Режим --cli спрашивает
 адрес в консоли (удобно вставлять полный URL с & без кавычек PowerShell).
@@ -50,8 +56,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="не открывать браузер при старте веб-интерфейса")
     parser.add_argument("--max-pages", type=int, default=MAX_PAGES,
                         help=f"максимальное число страниц обхода (по умолчанию и максимум {MAX_PAGES})")
-    parser.add_argument("--max-depth", type=int, default=3,
-                        help="максимальная глубина обхода (по умолчанию 3)")
+    parser.add_argument("--max-depth", type=int, default=4,
+                        help="максимальная глубина обхода (по умолчанию 4)")
     parser.add_argument("--output", default="report.html",
                         help="путь к файлу отчёта (по умолчанию report.html)")
     parser.add_argument("--max-requests", type=int, default=MAX_REQUESTS,
@@ -62,9 +68,56 @@ def build_parser() -> argparse.ArgumentParser:
                         help=f"пауза между запросами в секундах (минимум {MIN_DELAY})")
     parser.add_argument("--no-active", action="store_true",
                         help="выполнить только проверки конфигурации, без активных тестов")
-    parser.add_argument("--no-gigachat", action="store_true",
-                        help="не вызывать GigaChat для текстов «Как исправить» "
-                             "(диалог в отчёте через UI остаётся доступным при наличии ключа)")
+    parser.add_argument("--pentest", action="store_true",
+                        help="расширенный режим: SSRF-пробы внутренней сети/cloud-metadata, "
+                             "слепая SQL-инъекция по времени, обход авторизации через SQLi в "
+                             "форме входа и безопасное (без изменения данных) подтверждение "
+                             "эксплуатации для нескольких изученных CVE (Jenkins /script, "
+                             "Grafana CVE-2021-43798). Требует --active и "
+                             "--i-have-permission-to-attack")
+    parser.add_argument("--i-have-permission-to-attack", action="store_true",
+                        dest="pentest_consent",
+                        help="подтверждение, что у вас есть разрешение владельца на тестирование "
+                             "указанной цели этими методами; обязателен вместе с --pentest")
+    parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
+                        help="сколько запросов к сайту отправлять одновременно при переборе "
+                             f"служебных путей и активных проверках (1–{MAX_CONCURRENCY}, "
+                             f"по умолчанию {DEFAULT_CONCURRENCY}); частота стартов запросов "
+                             "при этом не растёт, а при ответах 429/503 сканер замедляется сам")
+    parser.add_argument("--no-vuln-db", action="store_true",
+                        help="отключить сопоставление компонентов с NVD, KEV, ExploitDB и БДУ")
+    parser.add_argument("--update-vuln-db", action="store_true",
+                        help="принудительно обновить кэш каталогов уязвимостей; без URL — "
+                             "только обновить KEV, ExploitDB и БДУ и выйти")
+    parser.add_argument("--vuln-db-cache", default="",
+                        help="каталог кэша баз уязвимостей (по умолчанию ~/.spyvision/cache)")
+    parser.add_argument("--vuln-db-ttl-hours", type=float, default=24.0,
+                        help="срок актуальности кэша каталогов в часах (по умолчанию 24)")
+    parser.add_argument("--vuln-db-offline", action="store_true",
+                        help="не обращаться к каталогам по сети: использовать только локальный кэш")
+    parser.add_argument("--no-exploitdb", action="store_true",
+                        help="не использовать ExploitDB")
+    parser.add_argument("--no-bdu", action="store_true",
+                        help="не использовать БДУ ФСТЭК (идентификаторы BDU, статус исправления)")
+    parser.add_argument("--bdu-file", default="",
+                        help="локальный файл vullist.xlsx из БДУ ФСТЭК вместо загрузки с bdu.fstec.ru "
+                             "(первый разбор файла занимает около минуты и выполняется один раз)")
+    parser.add_argument("--fstec-component-type", default="server",
+                        choices=["important", "firewall", "network", "telecom", "server",
+                                 "workstation", "storage", "other"],
+                        help="тип уязвимого компонента для оценки по методике ФСТЭК (показатель K; "
+                             "по умолчанию server)")
+    parser.add_argument("--fstec-perimeter", default="auto", choices=["auto", "internet", "internal"],
+                        help="доступность ресурса из Интернета для оценки по методике ФСТЭК "
+                             "(показатель P; по умолчанию определяется по адресу цели)")
+    parser.add_argument("--components", action="append", default=[], metavar="ФАЙЛ",
+                        help="список компонентов для сверки с NVD, БДУ, KEV и ExploitDB: "
+                             "requirements.txt, package-lock.json, package.json (точные версии), "
+                             "composer.lock, CycloneDX/SPDX JSON или строки «имя версия»; "
+                             "можно указать несколько раз")
+    parser.add_argument("--max-cves", type=int, default=DEFAULT_MAX_CVES,
+                        help="сколько CVE на компонент показывать в отчёте "
+                             f"(по умолчанию {DEFAULT_MAX_CVES}); на время скана не влияет")
     parser.add_argument("--no-post-forms", action="store_true",
                         help="не отправлять тестовые значения в POST-формы")
     parser.add_argument("--insecure", action="store_true",
@@ -167,8 +220,49 @@ def main(argv: Optional[List[str]] = None) -> int:
         parser.error("--max-depth не может быть отрицательным")
     if args.max_requests < 1:
         parser.error("--max-requests должен быть не меньше 1")
+    if not 1 <= args.concurrency <= MAX_CONCURRENCY:
+        parser.error(f"--concurrency должен быть в диапазоне 1..{MAX_CONCURRENCY}")
     if args.ui_port < 0 or args.ui_port > 65535:
         parser.error("--ui-port должен быть в диапазоне 0..65535")
+    for components_path in args.components:
+        if not os.path.isfile(components_path):
+            parser.error(f"--components: файл не найден: {components_path}")
+    if args.vuln_db_ttl_hours < 0:
+        parser.error("--vuln-db-ttl-hours не может быть отрицательным")
+    if args.max_cves < 1:
+        parser.error("--max-cves должен быть не меньше 1")
+    if args.update_vuln_db and args.vuln_db_offline:
+        parser.error("--update-vuln-db и --vuln-db-offline несовместимы")
+    if args.pentest and args.no_active:
+        parser.error("--pentest требует активные проверки: уберите --no-active")
+    if args.pentest and not args.pentest_consent:
+        parser.error(
+            "--pentest требует явного подтверждения --i-have-permission-to-attack: "
+            "режим отправляет дополнительные пробы (SSRF на внутренние адреса/cloud-metadata, "
+            "подтверждение эксплуатации конкретных CVE) и предназначен только для систем, на "
+            "тестирование которых у вас есть разрешение владельца."
+        )
+    if args.pentest_consent and not args.pentest:
+        parser.error("--i-have-permission-to-attack указан без --pentest — добавьте --pentest")
+    vuln_db_options = dict(
+        use_vuln_db=not args.no_vuln_db,
+        vuln_db_refresh=args.update_vuln_db,
+        vuln_db_ttl_hours=args.vuln_db_ttl_hours,
+        vuln_db_cache_dir=args.vuln_db_cache,
+        vuln_db_offline=args.vuln_db_offline,
+        nvd_api_key=os.environ.get("NVD_API_KEY", ""),
+        use_exploitdb=not args.no_exploitdb,
+        use_bdu=not args.no_bdu,
+        bdu_file=args.bdu_file,
+        fstec_component_type=args.fstec_component_type,
+        fstec_perimeter=args.fstec_perimeter,
+        components_files=list(args.components),
+        vuln_max_cves=args.max_cves,
+    )
+
+    # --update-vuln-db без URL: только обновить справочники и выйти
+    if args.update_vuln_db and args.url is None and not args.cli:
+        return update_vuln_db(args)
 
     max_requests = min(args.max_requests, MAX_REQUESTS)
     max_pages = min(args.max_pages, MAX_PAGES)
@@ -198,9 +292,12 @@ def main(argv: Optional[List[str]] = None) -> int:
             active=not args.no_active,
             test_post_forms=not args.no_post_forms,
             verbose=args.verbose,
-            use_gigachat=not args.no_gigachat,
+            concurrency=args.concurrency,
             port=args.ui_port,
             open_browser=not args.no_browser,
+            pentest=args.pentest,
+            pentest_authorized_by=os.environ.get("USERNAME") or os.environ.get("USER") or "",
+            **vuln_db_options,
         )
 
     if args.url is None:
@@ -223,13 +320,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         active=not args.no_active,
         test_post_forms=not args.no_post_forms,
         verbose=args.verbose,
-        use_gigachat=not args.no_gigachat,
+        concurrency=args.concurrency,
+        pentest=args.pentest,
+        pentest_authorized_by=os.environ.get("USERNAME") or os.environ.get("USER") or "",
+        **vuln_db_options,
     )
 
     print("=" * 72)
     print(f"Цель: {target}")
     print(f"Лимиты: страниц {config.max_pages}, глубина {config.max_depth}, "
           f"запросов {config.max_requests}, таймаут {config.timeout} с, пауза {config.delay} с")
+    if config.pentest:
+        print("Режим: --pentest (SSRF внутренней сети/cloud-metadata, слепая SQLi по времени, "
+              "обход авторизации через SQLi, подтверждение CVE) — "
+              f"подтверждено оператором: {config.pentest_authorized_by or '(не определён)'}")
+        print("Используйте только для систем, на тестирование которых у вас есть разрешение "
+              "владельца.")
     print("=" * 72)
 
     try:
@@ -257,6 +363,33 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
+def update_vuln_db(args) -> int:
+    """Обновляет справочники KEV, ExploitDB и БДУ без сканирования."""
+    from .vulndb import VulnDbConfig, update_databases
+
+    print("Обновление справочников уязвимостей (NVD кэшируется по продуктам при сканах)…")
+    statuses = update_databases(VulnDbConfig(
+        cache_dir=args.vuln_db_cache,
+        ttl_hours=args.vuln_db_ttl_hours,
+        use_exploitdb=not args.no_exploitdb,
+        use_bdu=not args.no_bdu,
+        bdu_file=args.bdu_file,
+        fstec_component_type=args.fstec_component_type,
+        fstec_perimeter=args.fstec_perimeter,
+        log=lambda message: print(message, flush=True),
+    ))
+    failed = 0
+    for name, status in statuses.items():
+        line = f"  {name}: {status.label}"
+        if status.records:
+            line += f", записей: {status.records}"
+        if status.message:
+            line += f" — {status.message}"
+        print(line)
+        failed += 0 if status.usable else 1
+    return 1 if failed == len(statuses) else 0
+
+
 def _print_summary(result, output_path: str) -> None:
     counts = result.findings.count_by_severity()
     stats = result.stats
@@ -264,6 +397,12 @@ def _print_summary(result, output_path: str) -> None:
     print(f"Страниц просканировано: {stats['pages']}")
     print(f"HTTP-запросов выполнено: {stats['requests_made']} из {stats['max_requests']}")
     print(f"Проверок выполнено: {stats['checks']}")
+    intel = stats.get("vulnerability_intelligence") or {}
+    if intel.get("enabled"):
+        print(f"Компонентов распознано: {len(intel.get('products') or [])}; "
+              f"CVE сопоставлено: {intel.get('matched_cves', 0)} (в CISA KEV: {intel.get('kev', 0)}, "
+              f"с эксплойтом: {intel.get('exploits', 0)}, в БДУ ФСТЭК: {intel.get('bdu', 0)}); "
+              f"запросов к каталогам: {stats.get('catalog_requests', 0)}")
     print(f"Найдено проблем: {len(result.findings)} "
           f"(High: {counts.get(HIGH, 0)}, Medium: {counts.get(MEDIUM, 0)}, "
           f"Low: {counts.get(LOW, 0)}, Info: {counts.get(INFO, 0)})")

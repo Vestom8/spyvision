@@ -7,6 +7,7 @@
 
 import difflib
 import re
+import time
 from dataclasses import dataclass, field
 from itertools import zip_longest
 from typing import Dict, List, Optional, Tuple
@@ -56,24 +57,54 @@ CRLF_PLACEHOLDER = "BAUMANCRLFPLACEHOLDER"
 # выполняется и не изменяется — интерес представляет только текст ошибки оболочки.
 CMD_MARKER = "BAUMANCMD"
 CMD_PAYLOAD = f"1;{CMD_MARKER}"
+# Общие фразы («command not found», «sh: 1:») встречаются в документации и логах, поэтому
+# засчитывается только сообщение оболочки, в котором названа наша несуществующая команда.
 CMD_ERROR_MARKERS = (
     f"{CMD_MARKER}: not found",
     f"{CMD_MARKER}: command not found",
-    "sh: 1:",
-    "/bin/sh:",
-    "command not found",
-    "is not recognized as an internal or external command",
-    "syntax error near unexpected token",
+    f"'{CMD_MARKER}' is not recognized as an internal or external command",
+    f"\"{CMD_MARKER}\" is not recognized as an internal or external command",
 )
+
+# Косвенные SQLi-признаки (код 5xx, изменившаяся структура) подтверждаются контрольной пробой:
+# парная кавычка не ломает запрос, а одиночная ломает. Если «сломалось» и с парной —
+# дело не в SQL, а в обработке спецсимволов или в динамической странице.
+WEAK_SQLI_KINDS = frozenset({"sqli_status", "sqli_structure"})
+SQLI_CONTROL_VALUES = {"'": "''", "\"": "\"\"", "\\": "\\\\"}
+
+# Булева слепая SQL-инъекция: TRUE-условие должно вести себя как обычный
+# ответ, FALSE — заметно отличаться. Три формы контекста (одиночная кавычка,
+# двойная кавычка, число) покрывают большинство типовых запросов.
+BOOLEAN_SQLI_PAIRS: Tuple[Tuple[str, str], ...] = (
+    ("' OR '1'='1", "' AND '1'='2"),
+    ('" OR "1"="1', '" AND "1"="2'),
+    (" OR 1=1", " AND 1=2"),
+)
+
+# SQL-инъекция по времени (слепая, без видимой разницы в содержимом ответа):
+# пауза короче жёсткого таймаута клиента (5 с), с запасом на сетевую задержку.
+TIME_SQLI_SECONDS = 3
+TIME_SQLI_PAYLOADS: Tuple[Tuple[str, str], ...] = (
+    (f"' OR SLEEP({TIME_SQLI_SECONDS}) -- -", "MySQL/MariaDB"),
+    (f" OR SLEEP({TIME_SQLI_SECONDS})", "MySQL/MariaDB (числовой контекст)"),
+    (f"'; SELECT pg_sleep({TIME_SQLI_SECONDS}) -- -", "PostgreSQL"),
+    (f"' WAITFOR DELAY '0:0:{TIME_SQLI_SECONDS}' -- -", "MS SQL Server"),
+)
+TIME_SQLI_CONTROL_SUFFIX = " OR SLEEP(0)"
+TIME_SQLI_TARGET_LIMIT = 4  # проверка по времени дороже: не больше стольких точек
 
 # Сколько точек внедрения проверять дополнительными (более дорогими) тестами
 EXTRA_TARGET_LIMIT = 12
 DEEP_TARGET_LIMIT = 5
 
+REDIRECT_SUBSTRING_HINTS = ("redirect", "return", "continue", "destination", "callback",
+                            "forward", "goto")
 REDIRECT_PARAM_HINTS = ("url", "redirect", "next", "return", "continue", "dest", "destination",
                         "target", "goto", "redir", "callback", "back", "link", "returnUrl",
                         "return_url", "redirect_uri", "redirect_url", "go", "out", "view",
                         "forward", "rurl")
+
+REDIRECT_WORD_HINTS = frozenset(hint.lower() for hint in REDIRECT_PARAM_HINTS)
 
 # Формы, отправка которых может изменить состояние приложения, активно не тестируются.
 DESTRUCTIVE_HINTS = ("delete", "remove", "drop", "destroy", "logout", "signout", "unsubscribe",
@@ -83,17 +114,19 @@ DESTRUCTIVE_HINTS = ("delete", "remove", "drop", "destroy", "logout", "signout",
 
 SQL_ERROR_PATTERNS: Tuple[Tuple[str, re.Pattern], ...] = (
     ("MySQL", re.compile(r"(?i)you have an error in your sql syntax|warning:\s*mysql|"
-                         r"mysql_fetch|mysqli?_|MySqlException|check the manual that corresponds")),
+                         r"mysql_fetch|mysqli?_\w+\(|MySqlException|check the manual that corresponds")),
     ("PostgreSQL", re.compile(r"(?i)pg_query|pg_exec|psycopg2|PSQLException|"
                               r"syntax error at or near|unterminated quoted string")),
     ("SQLite", re.compile(r"(?i)sqlite3?\.(?:Operational|Programming|Database)Error|"
-                          r"SQLITE_ERROR|unrecognized token|sqlite3_step")),
+                          r"SQLITE_ERROR|unrecognized token:\s*[\"']|sqlite3_step")),
     ("Oracle", re.compile(r"(?i)ORA-\d{5}|quoted string not properly terminated|"
                           r"oracle\.jdbc|OracleException")),
     ("MS SQL Server", re.compile(r"(?i)unclosed quotation mark|incorrect syntax near|"
                                  r"SqlException|System\.Data\.SqlClient|SQLSTATE\[")),
-    ("ORM/драйвер", re.compile(r"(?i)SQLAlchemy|OperationalError|ProgrammingError|"
-                               r"IntegrityError|QueryException|ActiveRecord::StatementInvalid")),
+    ("ORM/драйвер", re.compile(r"(?i)sqlalchemy\.exc\.|django\.db\.utils\.|"
+                               r"\w+\.(?:OperationalError|ProgrammingError|IntegrityError)\b|"
+                               r"Illuminate\\Database\\QueryException|"
+                               r"ActiveRecord::StatementInvalid")),
 )
 
 # Ошибки нереляционных баз данных: тот же спецсимвол ломает разбор запроса.
@@ -213,7 +246,8 @@ def build_targets(pages: List[Page], test_post_forms: bool = True,
 
 
 def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
-                      test_post_forms: bool = True, verbose: bool = False) -> ActiveResult:
+                      test_post_forms: bool = True, verbose: bool = False,
+                      pentest: bool = False) -> ActiveResult:
     result = ActiveResult()
     targets, result.skipped_forms = build_targets(pages, test_post_forms=test_post_forms)
     if not targets:
@@ -245,73 +279,264 @@ def run_active_checks(client: HttpClient, pages: List[Page], reserve: int = 0,
         tasks += [("sqli", t, payload) for t in deep]
 
     reported_sqli = set()
+    weak_sqli: List[Tuple[Finding, Target, str]] = []
     reported_xss = set()
     reported_extra = set()
-    for kind, target, payload in tasks:
-        if not client.can_request(reserve):
-            break
-        target_key = (target.method, target.action, target.param_name)
-        if kind == "xss" and target_key in reported_xss:
-            continue
+
+    def already_reported(kind, target_key) -> bool:
+        if kind == "xss":
+            return target_key in reported_xss
         if kind == "sqli":
             # Одной находки на параметр достаточно: остальные payload'ы
             # только расходовали бы лимит запросов.
-            if target_key in reported_sqli:
+            return target_key in reported_sqli
+        if kind in ("ssti", "lfi", "crlf", "cmd"):
+            return (kind, target_key) in reported_extra
+        return False
+
+    position = 0
+    out_of_budget = False
+    while position < len(tasks) and not out_of_budget:
+        # Пачка независимых проб уходит параллельно; ответы разбираются строго по порядку
+        # задач, а повторные находки по одному параметру отсекаются уже при разборе.
+        batch = []
+        while position < len(tasks) and len(batch) < max(1, client.concurrency):
+            if not client.can_request(reserve):
+                out_of_budget = True
+                break
+            kind, target, payload = tasks[position]
+            position += 1
+            target_key = (target.method, target.action, target.param_name)
+            if already_reported(kind, target_key):
                 continue
-            if target.baseline_body is None and not _load_baseline(
+            if kind == "sqli" and target.baseline_body is None and not _load_baseline(
                 client, target, baseline_cache, reserve
             ):
                 continue
-        if kind in ("ssti", "lfi", "crlf", "cmd") and (kind, target_key) in reported_extra:
-            continue
 
-        url, data = target.payload_request(payload)
-        if kind == "crlf":
-            # значение подставляется без повторного кодирования: нужны «сырые» %0d%0a
-            url = url.replace(CRLF_PLACEHOLDER, CRLF_RAW)
-        follow = kind not in ("redirect", "crlf")
-        response = client.request(target.method, url, data=data, allow_redirects=follow,
-                                 reserve=reserve)
-        if response is None:
-            continue
+            url, data = target.payload_request(payload)
+            if kind == "crlf":
+                # значение подставляется без повторного кодирования: нужны «сырые» %0d%0a
+                url = url.replace(CRLF_PLACEHOLDER, CRLF_RAW)
+            batch.append((kind, target, payload, target_key, url, data))
+
+        calls = [(target.method, url, dict(data=data, allow_redirects=kind not in ("redirect", "crlf"),
+                                           reserve=reserve))
+                 for kind, target, _payload, _key, url, data in batch]
+        responses = client.request_many(calls)
+
+        for (kind, target, payload, target_key, url, data), call, response in zip(batch, calls, responses):
+            if response is not None and response.status_code == 429:
+                # Ответ об ограничении частоты не несёт информации о параметре — повторяем один раз.
+                response = client.request(call[0], call[1], **call[2])
+            if response is None:
+                continue
+            result.tests_executed += 1
+            tested_targets.add(target_key)
+            if already_reported(kind, target_key):
+                continue
+
+            if kind == "xss":
+                xss_findings = _analyze_xss(target, response, url, data, payload=payload)
+                if xss_findings:
+                    reported_xss.add(target_key)
+                result.findings.extend(xss_findings)
+            elif kind == "sqli":
+                sqli_findings = _analyze_sqli(target, response, url, data, payload)
+                if sqli_findings:
+                    reported_sqli.add(target_key)
+                    weak_sqli.extend((item, target, payload) for item in sqli_findings
+                                     if item.kind in WEAK_SQLI_KINDS)
+                result.findings.extend(sqli_findings)
+            elif kind == "ssti":
+                found = _analyze_ssti(target, response, url, data)
+                if found:
+                    reported_extra.add((kind, target_key))
+                result.findings.extend(found)
+            elif kind == "lfi":
+                found = _analyze_lfi(target, response, url, data, payload)
+                if found:
+                    reported_extra.add((kind, target_key))
+                result.findings.extend(found)
+            elif kind == "cmd":
+                found = _analyze_command_injection(target, response, url, data)
+                if found:
+                    reported_extra.add((kind, target_key))
+                result.findings.extend(found)
+            elif kind == "crlf":
+                found = _analyze_crlf(target, response, url, data)
+                if found:
+                    reported_extra.add((kind, target_key))
+                result.findings.extend(found)
+            else:
+                result.findings.extend(_analyze_redirect(target, response, url, data))
+
+    for finding, target, payload in weak_sqli:
+        if not client.can_request(reserve):
+            break  # подтвердить нечем — находка остаётся с пометкой «подозрение»
         result.tests_executed += 1
-        tested_targets.add(target_key)
+        if not _confirm_sqli(client, finding, target, payload, reserve):
+            result.findings.remove(finding)
+            continue
+        # Контрольная проба прошла: пробуем независимо подтвердить находку булевым
+        # оракулом. Если TRUE/FALSE-условие воспроизводимо меняет ответ — это уже не
+        # предположение по эвристике, а продемонстрированная слепая SQL-инъекция.
+        if client.can_request(reserve + 2):
+            boolean_evidence = _boolean_blind_confirm(client, target, reserve)
+            result.tests_executed += 1
+            if boolean_evidence:
+                finding.kind = "sqli_boolean_blind"
+                finding.title = f"Подтверждена слепая SQL-инъекция (булева): {target.label()}"
+                finding.severity = HIGH
+                finding.confidence = CONFIRMED
+                finding.exploited = True
+                finding.evidence = truncate(f"{finding.evidence}\n\n{boolean_evidence}", 1400)
 
-        if kind == "xss":
-            xss_findings = _analyze_xss(target, response, url, data, payload=payload)
-            if xss_findings:
-                reported_xss.add(target_key)
-            result.findings.extend(xss_findings)
-        elif kind == "sqli":
-            sqli_findings = _analyze_sqli(target, response, url, data, payload)
-            if sqli_findings:
-                reported_sqli.add(target_key)
-            result.findings.extend(sqli_findings)
-        elif kind == "ssti":
-            found = _analyze_ssti(target, response, url, data)
-            if found:
-                reported_extra.add((kind, target_key))
-            result.findings.extend(found)
-        elif kind == "lfi":
-            found = _analyze_lfi(target, response, url, data, payload)
-            if found:
-                reported_extra.add((kind, target_key))
-            result.findings.extend(found)
-        elif kind == "cmd":
-            found = _analyze_command_injection(target, response, url, data)
-            if found:
-                reported_extra.add((kind, target_key))
-            result.findings.extend(found)
-        elif kind == "crlf":
-            found = _analyze_crlf(target, response, url, data)
-            if found:
-                reported_extra.add((kind, target_key))
-            result.findings.extend(found)
-        else:
-            result.findings.extend(_analyze_redirect(target, response, url, data))
+    # Проверка по времени: только в --pentest (дополнительная, заведомо замедляющая
+    # сайт нагрузка) и только для точек, где остальные пробы ничего не нашли —
+    # иначе это были бы лишние запросы к уже подтверждённой находке.
+    if pentest:
+        time_candidates = [t for t in targets[:TIME_SQLI_TARGET_LIMIT]
+                           if (t.method, t.action, t.param_name) not in reported_sqli]
+        for target in time_candidates:
+            if not client.can_request(reserve + 3):
+                break
+            evidence = _time_blind_confirm(client, target, reserve)
+            result.tests_executed += 1
+            if evidence:
+                result.findings.append(
+                    Finding(
+                        url=target.page_url,
+                        title=f"Подтверждена слепая SQL-инъекция (по времени): {target.label()}",
+                        kind="sqli_time_blind",
+                        category=VULN,
+                        severity=HIGH,
+                        recommendation="Используйте параметризованные запросы (prepared "
+                                       "statements) вместо конкатенации строк. Слепая "
+                                       "инъекция по времени работает даже тогда, когда "
+                                       "страница никак не меняется внешне.",
+                        request=describe_request(target.method, *target.payload_request(
+                            TIME_SQLI_PAYLOADS[0][0])),
+                        evidence=truncate(evidence, 1000),
+                        confidence=CONFIRMED,
+                        exploited=True,
+                    )
+                )
 
     result.targets_tested = len(tested_targets)
     return result
+
+
+def _boolean_blind_confirm(client: HttpClient, target: Target, reserve: int) -> Optional[str]:
+    """TRUE-условие должно вести себя как обычный ответ, FALSE — заметно отличаться.
+
+    Сравнение идёт не с ``target.baseline_body`` (для полей форм там может быть
+    ответ на подставленное служебное значение — см. ``_load_baseline``), а со
+    свежим ответом на исходное значение этой же точки внедрения, иначе TRUE
+    может не совпасть с устаревшим baseline по не связанной с SQL причине.
+    """
+    original = target.params.get(target.param_name, "") or ""
+    if not client.can_request(reserve + 1):
+        return None
+    normal_url, normal_data = target.payload_request(original)
+    normal_resp = client.request(target.method, normal_url, data=normal_data, reserve=reserve)
+    if normal_resp is None or getattr(normal_resp, "history", None) or \
+            normal_resp.status_code >= 500:
+        return None
+    normal_body = _text(normal_resp)
+
+    for true_suffix, false_suffix in BOOLEAN_SQLI_PAIRS:
+        if not client.can_request(reserve + 1):
+            break
+        true_url, true_data = target.payload_request(f"{original}{true_suffix}")
+        true_resp = client.request(target.method, true_url, data=true_data, reserve=reserve)
+        if true_resp is None or getattr(true_resp, "history", None) or true_resp.status_code >= 500:
+            continue
+        true_body = _text(true_resp)
+        if _structure_changed(normal_body, true_body):
+            continue  # TRUE должно выглядеть как обычный ответ — здесь не так
+        if not client.can_request(reserve):
+            break
+        false_url, false_data = target.payload_request(f"{original}{false_suffix}")
+        false_resp = client.request(target.method, false_url, data=false_data, reserve=reserve)
+        if false_resp is None or getattr(false_resp, "history", None) or \
+                false_resp.status_code >= 500:
+            continue
+        false_body = _text(false_resp)
+        if not _structure_changed(true_body, false_body):
+            continue  # FALSE не отличается от TRUE — оракул не сработал
+        return (f"TRUE ({original}{true_suffix}) -> ответ как обычно "
+                f"({len(true_body)} симв.); "
+                f"FALSE ({original}{false_suffix}) -> ответ заметно отличается "
+                f"({len(false_body)} симв.).")
+    return None
+
+
+def _time_blind_confirm(client: HttpClient, target: Target, reserve: int) -> Optional[str]:
+    """Проверка по времени для случаев, когда содержимое ответа вообще не меняется."""
+    for payload, engine in TIME_SQLI_PAYLOADS:
+        if not client.can_request(reserve + 2):
+            return None
+        url, data = target.payload_request(payload)
+        started = time.monotonic()
+        response = client.request(target.method, url, data=data, reserve=reserve)
+        elapsed = time.monotonic() - started
+        if response is None or elapsed < TIME_SQLI_SECONDS * 0.8:
+            continue  # эта СУБД/синтаксис не подошли — пробуем следующий вариант
+
+        # Контроль: тот же оператор с нулевой задержкой должен ответить быстро —
+        # иначе «медленный» ответ объясняется нагрузкой на сайт, а не инъекцией.
+        if not client.can_request(reserve + 1):
+            return None
+        control_url, control_data = target.payload_request(
+            f"{target.params.get(target.param_name, '') or ''}{TIME_SQLI_CONTROL_SUFFIX}"
+        )
+        control_started = time.monotonic()
+        control = client.request(target.method, control_url, data=control_data, reserve=reserve)
+        control_elapsed = time.monotonic() - control_started
+        if control is None or control_elapsed > TIME_SQLI_SECONDS * 0.5:
+            continue
+
+        # Повтор «медленного» payload'а: задержка должна воспроизводиться,
+        # а не быть случайным совпадением (скачок нагрузки, GC и т. п.).
+        if not client.can_request(reserve):
+            return None
+        again_started = time.monotonic()
+        again = client.request(target.method, url, data=data, reserve=reserve)
+        again_elapsed = time.monotonic() - again_started
+        if again is None or again_elapsed < TIME_SQLI_SECONDS * 0.8:
+            continue
+
+        return (f"Параметр «{target.param_name}»: ответ с задержкой SLEEP "
+                f"({engine}) занял {elapsed:.1f} с и {again_elapsed:.1f} с при повторе; "
+                f"контрольный запрос с нулевой задержкой — {control_elapsed:.1f} с.")
+    return None
+
+
+def _confirm_sqli(client: HttpClient, finding: Finding, target: Target, payload: str,
+                  reserve: int) -> bool:
+    """Контрольная проба для косвенных признаков SQL-инъекции; False — признак ложный."""
+    control = SQLI_CONTROL_VALUES.get(payload)
+    if control is None:
+        return True
+    url, data = target.payload_request(control)
+    response = client.request(target.method, url, data=data, reserve=reserve)
+    if response is None:
+        return True
+    if finding.kind == "sqli_status":
+        return response.status_code < 500
+    if getattr(response, "history", None):
+        return True  # контрольный запрос ушёл на другую страницу — вывода не сделать
+    if _structure_changed(target.baseline_body or "", _text(response)):
+        return False  # и парная кавычка меняет страницу: это не признак инъекции
+    # Парная кавычка страницу не меняет. Повторяем «ломающую» пробу: изменение должно
+    # воспроизводиться, а не быть случайным отличием динамической страницы.
+    url, data = target.payload_request(payload)
+    again = client.request(target.method, url, data=data, reserve=reserve)
+    if again is None:
+        return True
+    return not getattr(again, "history", None) and _structure_changed(
+        target.baseline_body or "", _text(again))
 
 
 # --- отражённый XSS -------------------------------------------------------
@@ -322,6 +547,8 @@ def _analyze_xss(target: Target, response, url: str, data,
         return []
     content_type = response.headers.get("Content-Type", "").lower()
     is_html = "html" in content_type or (not content_type and "<html" in body.lower())
+    if not (is_html or "xml" in content_type or "svg" in content_type):
+        return []  # JSON, text/plain и т. п.: отражённая строка не исполняется браузером
     request_text = describe_request(target.method, url, data)
 
     raw_reflected = (
@@ -515,7 +742,9 @@ def _analyze_sqli(target: Target, response, url: str, data, payload: str) -> Lis
                 )
             ]
 
-    if baseline_body and body:
+    # Если запрос закончился переходом на другую страницу, структура отличается из-за
+    # самого перехода (параметр next/url/return), а не из-за запроса к базе.
+    if baseline_body and body and not getattr(response, "history", None):
         if _structure_changed(baseline_body, body):
             return [
                 Finding(
@@ -559,16 +788,14 @@ def _structure_changed(baseline: str, body: str) -> bool:
 def _analyze_redirect(target: Target, response, url: str, data) -> List[Finding]:
     location = response.headers.get("Location", "")
     request_text = describe_request(target.method, url, data)
-    if location and REDIRECT_HOST in location.lower():
-        parsed = urlparse(location if "//" in location else "//" + location)
-        external = (parsed.hostname or "").lower().endswith(REDIRECT_HOST)
+    if location and _points_to_evil_host(location):
         return [
             Finding(
                 url=target.page_url,
                 title=f"Открытый редирект: {target.label()}",
                 kind="open_redirect",
                 category=VULN,
-                severity=MEDIUM if external else LOW,
+                severity=MEDIUM,
                 recommendation="Не подставляйте пользовательский адрес в Location. Используйте "
                                "белый список разрешённых адресов или разрешайте только "
                                "относительные пути (проверяя, что значение начинается с одного «/»). "
@@ -579,13 +806,13 @@ def _analyze_redirect(target: Target, response, url: str, data) -> List[Finding]
                     f"(переход по адресу не выполнялся)",
                     500,
                 ),
-                confidence=CONFIRMED if external else SUSPECTED,
+                confidence=CONFIRMED,
             )
         ]
 
     body = _text(response)
     match = META_REFRESH.search(body or "")
-    if match and REDIRECT_HOST in match.group(1).lower():
+    if match and _points_to_evil_host(match.group(1).strip()):
         return [
             Finding(
                 url=target.page_url,
@@ -601,6 +828,19 @@ def _analyze_redirect(target: Target, response, url: str, data) -> List[Finding]
             )
         ]
     return []
+
+
+def _points_to_evil_host(location: str) -> bool:
+    """Ведёт ли адрес переадресации именно на тестовый внешний хост.
+
+    Сравнивается хост разобранного адреса, а не подстрока: переход на собственную форму
+    входа вида ``/login?next=https%3A//evil.com`` не является открытым редиректом.
+    """
+    value = location.strip().replace("\\", "/")
+    if value.startswith("//"):
+        value = "https:" + value
+    host = (urlparse(value).hostname or "").lower()
+    return host == REDIRECT_HOST or host.endswith("." + REDIRECT_HOST)
 
 
 # --- инъекция в шаблон (SSTI) ---------------------------------------------
@@ -762,7 +1002,13 @@ def _load_baseline(client: HttpClient, target: Target,
 
 def _is_redirect_param(name: str) -> bool:
     lowered = name.lower()
-    return any(hint in lowered for hint in REDIRECT_PARAM_HINTS)
+    # Длинные подсказки допустимы как часть имени (redirectTo, return_path), короткие
+    # («out», «view», «go», «link») — только как отдельное слово, иначе «preview» и «about»
+    # считались бы параметрами перехода.
+    if any(hint in lowered for hint in REDIRECT_SUBSTRING_HINTS):
+        return True
+    words = [word for word in re.split(r"[^a-z0-9]+", lowered) if word]
+    return lowered in REDIRECT_WORD_HINTS or any(word in REDIRECT_WORD_HINTS for word in words)
 
 
 def _looks_destructive(form: Form) -> bool:

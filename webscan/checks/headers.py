@@ -26,6 +26,12 @@ SAFE_REFERRER_POLICIES = {
 
 HSTS_MIN_AGE = 15552000  # 180 дней
 
+# Заголовки, которые имеют смысл только у документа (HTML-страницы с успешным ответом):
+# у JSON, скриптов, стилей, картинок и редиректов CSP, X-Frame-Options, COOP и т. п. не нужны.
+DOCUMENT_ONLY = ("content-security-policy", "x-frame-options", "referrer-policy",
+                 "permissions-policy", "cross-origin-opener-policy",
+                 "cross-origin-resource-policy")
+
 
 def check_headers(page: Page) -> List[Finding]:
     findings: List[Finding] = []
@@ -47,9 +53,12 @@ def check_headers(page: Page) -> List[Finding]:
             )
         )
 
+    is_document = _is_document(page)
     csp = _first(multi, "content-security-policy")
     csp_ro = _first(multi, "content-security-policy-report-only")
-    if not csp:
+    if not is_document:
+        pass
+    elif not csp:
         if csp_ro:
             add(
                 "Content-Security-Policy только в режиме Report-Only",
@@ -96,14 +105,8 @@ def check_headers(page: Page) -> List[Finding]:
                 f"Content-Security-Policy: {csp}",
                 kind="csp_no_default",
             )
-        if "frame-ancestors" not in lowered and not _first(multi, "x-frame-options"):
-            add(
-                "Нет защиты от встраивания в iframe (frame-ancestors / X-Frame-Options)",
-                MEDIUM,
-                "Добавьте frame-ancestors 'self' в CSP либо заголовок X-Frame-Options: DENY.",
-                f"Content-Security-Policy: {csp}",
-                kind="csp_no_frame_ancestors",
-            )
+        # Отсутствие frame-ancestors вместе с X-Frame-Options — одна и та же проблема
+        # (clickjacking); она сообщается один раз ниже, как «xfo_missing».
 
     hsts = _first(multi, "strict-transport-security")
     if page.is_https:
@@ -152,7 +155,9 @@ def check_headers(page: Page) -> List[Finding]:
         )
 
     xfo = _first(multi, "x-frame-options")
-    if xfo:
+    if not is_document:
+        pass
+    elif xfo:
         value = xfo.strip().lower()
         if value.startswith("allow-from"):
             add(
@@ -181,7 +186,9 @@ def check_headers(page: Page) -> List[Finding]:
         )
 
     xcto = _first(multi, "x-content-type-options")
-    if not xcto:
+    if page.status in (204, 304):
+        pass
+    elif not xcto:
         add(
             "Отсутствует заголовок X-Content-Type-Options",
             LOW,
@@ -199,7 +206,9 @@ def check_headers(page: Page) -> List[Finding]:
         )
 
     referrer = _first(multi, "referrer-policy")
-    if not referrer:
+    if not is_document:
+        pass
+    elif not referrer:
         add(
             "Отсутствует заголовок Referrer-Policy",
             LOW,
@@ -237,7 +246,7 @@ def check_headers(page: Page) -> List[Finding]:
             kind="xss_protection_legacy",
         )
 
-    if page.is_https and not _first(multi, "cross-origin-opener-policy"):
+    if is_document and page.is_https and not _first(multi, "cross-origin-opener-policy"):
         add(
             "Отсутствует заголовок Cross-Origin-Opener-Policy",
             LOW,
@@ -247,7 +256,7 @@ def check_headers(page: Page) -> List[Finding]:
             kind="coop_missing",
         )
 
-    if page.is_https and not _first(multi, "cross-origin-resource-policy"):
+    if is_document and page.is_https and not _first(multi, "cross-origin-resource-policy"):
         add(
             "Отсутствует заголовок Cross-Origin-Resource-Policy",
             LOW,
@@ -274,7 +283,7 @@ def check_headers(page: Page) -> List[Finding]:
                 kind="page_cors_open",
             )
 
-    if not _first(multi, "permissions-policy"):
+    if is_document and not _first(multi, "permissions-policy"):
         legacy = _first(multi, "feature-policy")
         add(
             "Отсутствует заголовок Permissions-Policy",
@@ -323,6 +332,13 @@ def _check_duplicates(page: Page, multi, request_line: str) -> List[Finding]:
                 )
             )
     return findings
+
+
+def _is_document(page: Page) -> bool:
+    """HTML-страница с успешным ответом: только к ней применимы заголовки документа."""
+    content_type = (page.content_type or page.headers.get("Content-Type", "") or "").lower()
+    status = page.status or 200
+    return "html" in content_type and 200 <= status < 300
 
 
 def _first(multi, name: str) -> str:

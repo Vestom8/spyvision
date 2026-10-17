@@ -6,8 +6,7 @@
 (как читать отчёт, найденные проблемы, просканированные страницы, список
 проверок, запросы без ответа) вынесены в боковую выпадающую панель, чтобы
 главный экран помещался без прокрутки. Кнопка «Скачать PDF» открывает печать
-краткой сводки — браузер сохраняет её в PDF. В подробностях находки — кнопка
-«ГигаЧат» с диалогом эксперта по информационной безопасности.
+краткой сводки — браузер сохраняет её в PDF.
 """
 
 import datetime
@@ -16,6 +15,7 @@ import json
 import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
+from . import report_vulns
 from .models import (CONFIG, CONFIRMED, HIGH, INFO, LOW, MEDIUM, SEVERITY_ORDER, SUSPECTED,
                      VULN, Finding, FindingList)
 
@@ -685,15 +685,6 @@ a.url:hover { text-decoration: none; border-bottom-color: var(--green); backgrou
   text-transform: uppercase; letter-spacing: .4px; color: var(--green-dark);
 }
 .det .fix-steps.verify { border-left: 3px solid var(--mint-deep); padding-left: 1em; margin-left: 2px; }
-.det .giga-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
-  margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
-button.giga-btn {
-  background: var(--green); color: #fff; border: 1px solid var(--green-dark);
-  border-radius: 999px; padding: 8px 16px; font: inherit; font-size: 13.5px; font-weight: 700;
-  cursor: pointer; box-shadow: var(--shadow-soft); transition: .15s;
-}
-button.giga-btn:hover { background: var(--green-dark); transform: translateY(-1px); }
-.giga-actions .giga-hint { color: var(--muted); font-size: 12.5px; }
 .repeat { display: inline-block; margin-left: 8px; padding: 2px 9px; border-radius: 999px;
   background: var(--mint); border: 1px solid var(--mint-deep); color: var(--green-dark);
   font-size: 12px; font-weight: 750; white-space: nowrap; vertical-align: middle; }
@@ -743,57 +734,6 @@ button.f.pdf-filter:hover { border-color: var(--green); color: var(--green-dark)
 pre { margin: 0; padding: 10px 12px; background: #F7FAF8; border: 1px solid var(--border);
   border-radius: 12px; white-space: pre-wrap; word-break: break-word; color: #33403A;
   font: 12.5px/1.5 Consolas, "Courier New", monospace; max-height: 260px; overflow: auto; }
-
-/* ---------- диалог ГигаЧат ---------- */
-.giga-backdrop { position: fixed; inset: 0; background: rgba(27, 70, 48, .38); z-index: 40;
-  opacity: 0; visibility: hidden; transition: opacity .2s, visibility .2s; }
-.giga-backdrop.open { opacity: 1; visibility: visible; }
-.giga-dialog { position: fixed; z-index: 41; top: 50%; left: 50%; width: min(560px, 94vw);
-  max-height: min(82vh, 720px); transform: translate(-50%, -46%) scale(.97);
-  background: var(--bg-top); border: 1px solid var(--border); border-radius: 18px;
-  box-shadow: 0 22px 50px rgba(27,70,48,.28); display: flex; flex-direction: column;
-  opacity: 0; visibility: hidden; transition: .2s ease; }
-.giga-dialog.open { opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
-.giga-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px;
-  border-bottom: 1px solid var(--border); background: var(--panel); border-radius: 18px 18px 0 0; }
-.giga-head .giga-title { font-weight: 800; font-size: 16px; color: var(--green-dark); margin: 0; }
-.giga-head .giga-sub { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px;
-  line-height: 1.35; }
-.giga-head .giga-warn { display: block; color: var(--muted); font-size: 11px; margin-top: 6px;
-  line-height: 1.4; opacity: .92; }
-.giga-head .giga-close { margin-left: auto; background: var(--panel); border: 1px solid var(--border);
-  border-radius: 999px; width: 34px; height: 34px; font-size: 17px; line-height: 1; cursor: pointer;
-  color: var(--muted); font-family: inherit; flex-shrink: 0; }
-.giga-head .giga-close:hover { border-color: var(--high); color: var(--high); }
-.giga-finding { margin: 0; padding: 10px 16px; font-size: 13px; color: var(--text);
-  background: var(--mint); border-bottom: 1px solid var(--mint-deep); }
-.giga-finding b { color: var(--green-dark); }
-.giga-messages { flex: 1; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column;
-  gap: 10px; min-height: 220px; background: var(--panel-2); }
-.giga-msg { max-width: 92%; padding: 10px 12px; border-radius: 14px; font-size: 14px;
-  line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-.giga-msg.bot { align-self: flex-start; background: var(--panel); border: 1px solid var(--border);
-  border-left: 3px solid var(--green); }
-.giga-msg.user { align-self: flex-end; background: var(--mint); border: 1px solid var(--mint-deep);
-  color: var(--green-dark); }
-.giga-msg.err { align-self: stretch; background: #FDF6F4; border: 1px solid #E8C4B8;
-  border-left: 3px solid var(--high); color: #8E3A2A; }
-.giga-msg.busy { opacity: .75; font-style: italic; }
-.giga-form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border);
-  background: var(--panel); border-radius: 0 0 18px 18px; }
-.giga-form textarea { flex: 1; min-height: 44px; max-height: 110px; resize: vertical;
-  border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; font: inherit;
-  font-size: 14px; background: var(--bg-top); color: var(--text); }
-.giga-form textarea:focus { outline: 2px solid rgba(47,143,99,.22); border-color: var(--green); }
-.giga-form button { background: var(--green); color: #fff; border: 1px solid var(--green-dark);
-  border-radius: 12px; padding: 0 16px; font: inherit; font-weight: 700; cursor: pointer;
-  white-space: nowrap; }
-.giga-form button:disabled { opacity: .55; cursor: wait; }
-.giga-form button:hover:not(:disabled) { background: var(--green-dark); }
-.giga-tools { display: flex; gap: 8px; padding: 0 16px 10px; background: var(--panel); }
-.giga-tools button { background: transparent; border: 1px solid var(--border); color: var(--muted);
-  border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12.5px; cursor: pointer; }
-.giga-tools button:hover { border-color: var(--high); color: var(--high); }
 
 .empty { padding: 24px; text-align: center; color: var(--muted); background: var(--panel);
   border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow-soft); }
@@ -899,169 +839,7 @@ function closePanel() {
   drawer.classList.remove('open');
   drawer.setAttribute('aria-hidden', 'true');
   document.getElementById('backdrop').classList.remove('open');
-  if (!document.getElementById('giga-dialog') ||
-      !document.getElementById('giga-dialog').classList.contains('open')) {
-    document.body.classList.remove('locked');
-  }
-}
-var gigaState = { history: [], context: null, busy: false, storageKey: '' };
-var GIGA_GREETING = 'Здравствуйте! Я ГигаЧат — эксперт по информационной безопасности. '
-  + 'Могу разобрать эту находку, объяснить риск и подсказать, как исправить. '
-  + 'Задайте вопрос или нажмите «Спросить про эту находку».';
-function gigaStorageKey(title) {
-  var target = document.body.dataset.target || '';
-  return 'spyvision-giga:' + target + '|' + (title || '');
-}
-function loadGigaHistory(key) {
-  try {
-    var raw = localStorage.getItem(key);
-    if (!raw) { return []; }
-    var parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) { return []; }
-    return parsed.filter(function (item) {
-      return item && (item.role === 'user' || item.role === 'assistant')
-        && typeof item.content === 'string' && item.content.trim();
-    }).slice(-40);
-  } catch (e) { return []; }
-}
-function saveGigaHistory() {
-  if (!gigaState.storageKey) { return; }
-  try {
-    localStorage.setItem(gigaState.storageKey, JSON.stringify(gigaState.history.slice(-40)));
-  } catch (e) { /* quota / private mode */ }
-}
-function renderGigaHistory() {
-  var box = document.getElementById('giga-messages');
-  if (!box) { return; }
-  box.innerHTML = '';
-  if (!gigaState.history.length) {
-    appendGigaMsg('bot', GIGA_GREETING);
-    return;
-  }
-  gigaState.history.forEach(function (item) {
-    appendGigaMsg(item.role === 'user' ? 'user' : 'bot', item.content);
-  });
-}
-function openGigaChat(button) {
-  var dialog = document.getElementById('giga-dialog');
-  var backdrop = document.getElementById('giga-backdrop');
-  if (!dialog || !backdrop) { return; }
-  saveGigaHistory();
-  gigaState.context = {
-    title: button.getAttribute('data-title') || '',
-    severity: button.getAttribute('data-severity') || '',
-    url: button.getAttribute('data-url') || '',
-    threat_type: button.getAttribute('data-threat') || '',
-    impact: button.getAttribute('data-impact') || '',
-    detection: button.getAttribute('data-detection') || '',
-    request: button.getAttribute('data-request') || '',
-    evidence: button.getAttribute('data-evidence') || '',
-    recommendation: button.getAttribute('data-recommendation') || ''
-  };
-  gigaState.storageKey = gigaStorageKey(gigaState.context.title);
-  gigaState.history = loadGigaHistory(gigaState.storageKey);
-  var findingEl = document.getElementById('giga-finding');
-  if (findingEl) {
-    findingEl.innerHTML = '<b>' + escHtml(gigaState.context.title || 'Находка') + '</b>'
-      + (gigaState.context.severity ? ' · ' + escHtml(gigaState.context.severity) : '')
-      + (gigaState.context.url ? '<br><span class="url">' + escHtml(gigaState.context.url) + '</span>' : '');
-  }
-  renderGigaHistory();
-  var input = document.getElementById('giga-input');
-  if (input) { input.value = ''; }
-  dialog.classList.add('open');
-  dialog.setAttribute('aria-hidden', 'false');
-  backdrop.classList.add('open');
-  document.body.classList.add('locked');
-  if (input) { setTimeout(function () { input.focus(); }, 80); }
-}
-function closeGigaChat() {
-  saveGigaHistory();
-  var dialog = document.getElementById('giga-dialog');
-  var backdrop = document.getElementById('giga-backdrop');
-  if (dialog) {
-    dialog.classList.remove('open');
-    dialog.setAttribute('aria-hidden', 'true');
-  }
-  if (backdrop) { backdrop.classList.remove('open'); }
-  var drawer = document.getElementById('drawer');
-  if (!drawer || !drawer.classList.contains('open')) {
-    document.body.classList.remove('locked');
-  }
-}
-function clearGigaHistory() {
-  if (gigaState.busy) { return; }
-  gigaState.history = [];
-  saveGigaHistory();
-  renderGigaHistory();
-}
-function appendGigaMsg(kind, text) {
-  var box = document.getElementById('giga-messages');
-  if (!box) { return null; }
-  var el = document.createElement('div');
-  el.className = 'giga-msg ' + kind;
-  el.textContent = text;
-  box.appendChild(el);
-  box.scrollTop = box.scrollHeight;
-  return el;
-}
-function setGigaBusy(busy) {
-  gigaState.busy = busy;
-  var send = document.getElementById('giga-send');
-  var ask = document.getElementById('giga-ask-finding');
-  var clear = document.getElementById('giga-clear');
-  var input = document.getElementById('giga-input');
-  if (send) { send.disabled = busy; }
-  if (ask) { ask.disabled = busy; }
-  if (clear) { clear.disabled = busy; }
-  if (input) { input.disabled = busy; }
-}
-function sendGigaChat(message) {
-  var text = String(message || '').trim();
-  if (!text || gigaState.busy) { return; }
-  if (location.protocol === 'file:') {
-    appendGigaMsg('err',
-      'Диалог GigaChat работает только через локальный сервер Spyvision '
-      + '(python scan.py → откройте отчёт по ссылке http://127.0.0.1:…/report.html), '
-      + 'а не из файла report.html на диске.');
-    return;
-  }
-  appendGigaMsg('user', text);
-  gigaState.history.push({ role: 'user', content: text });
-  saveGigaHistory();
-  var busyEl = appendGigaMsg('bot busy', 'ГигаЧат думает…');
-  setGigaBusy(true);
-  fetch('/api/gigachat-chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: text,
-      history: gigaState.history.slice(0, -1),
-      context: gigaState.context || {}
-    })
-  }).then(function (res) {
-    return res.json().then(function (data) {
-      return { okHttp: res.ok, data: data };
-    });
-  }).then(function (result) {
-    if (busyEl && busyEl.parentNode) { busyEl.parentNode.removeChild(busyEl); }
-    var data = result.data || {};
-    if (!result.okHttp || !data.ok) {
-      appendGigaMsg('err', data.error || 'Не удалось получить ответ GigaChat.');
-      saveGigaHistory();
-      return;
-    }
-    var reply = data.reply || '';
-    appendGigaMsg('bot', reply);
-    gigaState.history.push({ role: 'assistant', content: reply });
-    saveGigaHistory();
-  }).catch(function (err) {
-    if (busyEl && busyEl.parentNode) { busyEl.parentNode.removeChild(busyEl); }
-    appendGigaMsg('err',
-      'Ошибка сети при обращении к /api/gigachat-chat. '
-      + 'Убедитесь, что отчёт открыт через локальный сервер Spyvision. '
-      + (err && err.message ? err.message : ''));
-  }).finally(function () { setGigaBusy(false); });
+  document.body.classList.remove('locked');
 }
 function showSeverity(value) {
   selectButton('button.f.sev', value);
@@ -1186,7 +964,7 @@ function printFiltered() {
 function chartShadowBottomExtent(el) {
   var sh = getComputedStyle(el).boxShadow || '';
   if (!sh || sh === 'none') { return 0; }
-  var parts = sh.match(/-?[\d.]+px/g);
+    var parts = sh.match(/-?[\\d.]+px/g);
   if (!parts || parts.length < 3) { return 10; }
   var y = parseFloat(parts[1]) || 0;
   var blur = parseFloat(parts[2]) || 0;
@@ -1247,8 +1025,6 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') {
-      var giga = document.getElementById('giga-dialog');
-      if (giga && giga.classList.contains('open')) { closeGigaChat(); return; }
       closePanel();
     }
   });
@@ -1260,58 +1036,14 @@ document.addEventListener('DOMContentLoaded', function () {
   document.querySelectorAll('tr.f-row').forEach(function (row) {
     row.addEventListener('click', function (event) {
       // клик по ссылке открывает адрес, у кнопки «подробнее» свой обработчик
-      if (event.target.closest('a') || event.target.closest('.toggle')
-          || event.target.closest('.giga-btn')) { return; }
+      if (event.target.closest('a') || event.target.closest('.toggle')) { return; }
       setRow(row, !isOpen(row));
       refreshToggleAll();
-    });
-  });
-  document.querySelectorAll('.giga-btn').forEach(function (btn) {
-    btn.addEventListener('click', function (event) {
-      event.preventDefault();
-      event.stopPropagation();
-      openGigaChat(btn);
     });
   });
   document.querySelectorAll('.case-item summary a').forEach(function (link) {
     link.addEventListener('click', function (event) { event.stopPropagation(); });
   });
-  var gigaClose = document.querySelectorAll('[data-giga-close]');
-  gigaClose.forEach(function (el) {
-    el.addEventListener('click', closeGigaChat);
-  });
-  var gigaForm = document.getElementById('giga-form');
-  if (gigaForm) {
-    gigaForm.addEventListener('submit', function (event) {
-      event.preventDefault();
-      var input = document.getElementById('giga-input');
-      var value = input ? input.value : '';
-      if (input) { input.value = ''; }
-      sendGigaChat(value);
-    });
-  }
-  var gigaAsk = document.getElementById('giga-ask-finding');
-  if (gigaAsk) {
-    gigaAsk.addEventListener('click', function () {
-      sendGigaChat(
-        'Разбери эту находку: чем она опасна, как её исправить по шагам '
-        + 'и как проверить, что исправление сработало.'
-      );
-    });
-  }
-  var gigaClear = document.getElementById('giga-clear');
-  if (gigaClear) {
-    gigaClear.addEventListener('click', clearGigaHistory);
-  }
-  var gigaInput = document.getElementById('giga-input');
-  if (gigaInput) {
-    gigaInput.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        if (gigaForm) { gigaForm.requestSubmit ? gigaForm.requestSubmit() : gigaForm.dispatchEvent(new Event('submit', { cancelable: true })); }
-      }
-    });
-  }
   applyFilters();
   syncChartToStats();
   requestAnimationFrame(syncChartToStats);
@@ -1365,6 +1097,8 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
     pages = list(stats.get("page_list") or [])
     errors = list(stats.get("errors") or [])
     performed = list(stats.get("checks_list") or [])
+    intel = dict(stats.get("vulnerability_intelligence") or {})
+    vulns, more_vulns = report_vulns.collect_vulns(items)
     target = str(stats.get("target", ""))
 
     # Разделы боковой панели: ключ, заголовок, число в карточке, пояснение, содержимое
@@ -1374,7 +1108,8 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
          _findings_panel(items, by_severity, by_category, by_confidence, total)),
         ("help", "Как читать отчёт", None,
          "что означают уровни опасности, уверенность и содержимое записи",
-         _help_panel(by_severity)),
+         _help_panel(by_severity,
+                     report_vulns.help_block() if intel.get("enabled") else "")),
         ("pages", "Просканированные страницы", len(pages),
          "адреса, ответы сервера, глубина обхода и размер кода",
          _pages_panel(pages)),
@@ -1382,6 +1117,15 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
          "полный список выполненных проверок и их охват",
          _checks_panel(performed)),
     ]
+    if intel.get("enabled"):
+        panels.append((
+            "catalogs",
+            "Известные уязвимости компонентов",
+            len(vulns),
+            "CVE по версиям компонентов: CVSS, CISA KEV, ExploitDB; фильтры и "
+            "выгрузка CSV для аудита",
+            report_vulns.vulns_panel(intel, vulns, more_vulns, SPIDER_ICON),
+        ))
     if errors:
         panels.append(("errors", "Запросы, оставшиеся без ответа", len(errors),
                        "таймауты, отказы соединения и другие сетевые ошибки",
@@ -1392,7 +1136,7 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
         "<!DOCTYPE html>\n<html lang=\"ru\">\n<head>\n<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<title>Отчёт сканирования — {esc(target)}</title>\n"
-        f"<style>{CSS}</style>\n</head>\n"
+        f"<style>{CSS}{report_vulns.CSS}</style>\n</head>\n"
         f"<body data-target=\"{esc(target)}\" data-generated=\"{esc(generated)}\">\n"
     )
 
@@ -1419,7 +1163,7 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
     parts.append(f"<h2>{SPIDER_ICON}Общая статистика</h2>")
     parts.append("<div class=\"hero-align\">")
     parts.append(_chart_card(by_severity, total))
-    parts.append(_stat_cards(stats, by_severity, by_category, len(critical), total))
+    parts.append(_stat_cards(stats, by_severity, by_category, len(critical), total, vulns))
     parts.append("</div></div></div></header>\n")
 
     parts.append("<div class=\"wrap\">")
@@ -1449,13 +1193,12 @@ def build_report(findings: FindingList, stats: Dict[str, object]) -> str:
 
     # ---------- боковая панель ----------
     parts.append(_drawer(panels))
-    parts.append(_giga_dialog())
 
     # ---------- печатная версия для сохранения в PDF ----------
     parts.append(_pdf_report(stats, by_severity, by_confidence, critical, items,
-                             total, generated))
+                             total, generated, vulns))
     parts.append('<div id="pdf-filtered"></div>')
-    parts.append(f"<script>{JS}</script>\n</body>\n</html>")
+    parts.append(f"<script>{JS}</script>\n<script>{report_vulns.JS}</script>\n</body>\n</html>")
     return "".join(parts)
 
 
@@ -1529,7 +1272,8 @@ def _chart_card(by_severity: Dict[str, int], total: int) -> str:
 
 # ---------- общая статистика ----------
 def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
-                by_category: Dict[str, int], critical: int, total: int) -> str:
+                by_category: Dict[str, int], critical: int, total: int,
+                vulns: Sequence[Dict[str, object]] = ()) -> str:
     requests_made = _int(stats.get("requests_made"))
     max_requests = _int(stats.get("max_requests"))
     pages = _int(stats.get("pages"))
@@ -1579,6 +1323,8 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
               "между запросами выдерживается пауза 0.1 с"),
     ]
 
+    intel = dict(stats.get("vulnerability_intelligence") or {})
+
     groups = (
         ("Что просканировано", scanned),
         ("Что найдено", found),
@@ -1590,6 +1336,8 @@ def _stat_cards(stats: Dict[str, object], by_severity: Dict[str, int],
             f"<div class=\"stat-group\"><h3>{esc(title)}</h3>"
             f"<div class=\"cards\">{''.join(cards)}</div></div>"
         )
+    if intel.get("enabled"):
+        html_parts.append(report_vulns.stat_group(intel, vulns))
     html_parts.append("</div>")
     return "".join(html_parts)
 
@@ -1632,41 +1380,6 @@ def _nav_cards(panels: Sequence[Tuple[str, str, Optional[int], str, str]]) -> st
     return f"<div class=\"nav-cards\">{''.join(cards)}</div>"
 
 
-def _giga_dialog() -> str:
-    """Модальное окно чата с ГигаЧатом (эксперт ИБ)."""
-    return (
-        '<div class="giga-backdrop" id="giga-backdrop" data-giga-close></div>'
-        '<div class="giga-dialog" id="giga-dialog" role="dialog" '
-        'aria-modal="true" aria-labelledby="giga-title" aria-hidden="true">'
-        '<div class="giga-head">'
-        '<div><p class="giga-title" id="giga-title">ГигаЧат</p>'
-        '<span class="giga-sub">Эксперт в сфере информационной безопасности · '
-        'разбор находки и советы по исправлению</span>'
-        '<span class="giga-warn">Вы соглашаетесь с тем, что написав информацию '
-        'вы делитесь не только с ботом, но и с серверами ИИ. '
-        'SpyVision не несёт ответственность.</span></div>'
-        '<button type="button" class="giga-close" data-giga-close '
-        'title="Закрыть (Esc)" aria-label="Закрыть диалог">×</button>'
-        '</div>'
-        '<p class="giga-finding" id="giga-finding"></p>'
-        '<div class="giga-messages" id="giga-messages"></div>'
-        '<div class="giga-form" style="padding-bottom:8px;border-bottom:none;'
-        'border-radius:0;justify-content:flex-start">'
-        '<button type="button" id="giga-ask-finding">Спросить про эту находку</button>'
-        '</div>'
-        '<div class="giga-tools">'
-        '<button type="button" id="giga-clear">Очистить историю</button>'
-        '</div>'
-        '<form class="giga-form" id="giga-form">'
-        '<textarea id="giga-input" rows="2" maxlength="4000" '
-        'placeholder="Например: как срочно закрыть эту уязвимость?" '
-        'aria-label="Сообщение ГигаЧату"></textarea>'
-        '<button type="submit" id="giga-send">Отправить</button>'
-        '</form>'
-        '</div>'
-    )
-
-
 def _drawer(panels: Sequence[Tuple[str, str, Optional[int], str, str]]) -> str:
     tabs: List[str] = []
     sections: List[str] = []
@@ -1691,7 +1404,7 @@ def _drawer(panels: Sequence[Tuple[str, str, Optional[int], str, str]]) -> str:
 
 
 # ---------- содержимое разделов ----------
-def _help_panel(by_severity: Dict[str, int]) -> str:
+def _help_panel(by_severity: Dict[str, int], extra: str = "") -> str:
     parts = [f"<h2>{SPIDER_ICON}Как читать отчёт</h2>",
              "<p class=\"section-note\">Нажмите на уровень опасности — здесь, в диаграмме на "
              "главном экране или в фильтрах — и в таблице «Найденные проблемы» останутся "
@@ -1721,6 +1434,7 @@ def _help_panel(by_severity: Dict[str, int]) -> str:
         "экране открывает печать краткой сводки только с находками высокого уровня "
         "(подтверждённые — первыми). Средние и низкие остаются в HTML-отчёте.</span></div>"
     )
+    parts.append(extra)
     parts.append("</div>")
     return "".join(parts)
 
@@ -1886,7 +1600,7 @@ def _fix_block(finding: Finding) -> str:
     from .fixes import FIX_GUIDES, fix_guide
 
     # Если есть статический гайд — он приоритетнее; иначе берём шаги
-    # из Finding (в т.ч. после обогащения GigaChat).
+    # из Finding.
     if (finding.kind or "") in FIX_GUIDES:
         guide = fix_guide(finding.kind, finding.recommendation)
     elif finding.fix_steps:
@@ -1975,6 +1689,8 @@ def _group_row(index: int, findings: Sequence[Finding]) -> str:
             item.threat_type, item.impact, item.detection, item.evidence,
             item.request, item.confidence, item.recommendation,
             " ".join(item.fix_steps or []),
+            " ".join(item.identifiers or []), " ".join(item.sources or []),
+            " ".join(item.references or []), item.cpe,
         ])
     search_blob = " ".join(search_parts).lower()
     steps_json = esc(json.dumps(list(primary.fix_steps or []), ensure_ascii=False))
@@ -2007,33 +1723,10 @@ def _group_row(index: int, findings: Sequence[Finding]) -> str:
     )
 
     cases_html = _cases_block(findings)
-    # Контекст для ГигаЧата: сводка по всем случаям группы
-    giga_urls = "\n".join(unique_urls[:20])
-    giga_requests = "\n---\n".join(
-        (item.request or "—") for item in findings[:8]
-    )
-    giga_evidence = "\n---\n".join(
-        (item.evidence or "—") for item in findings[:8]
-    )
-
     fix_block = (
         "<div class=\"block fix full\"><h4>Как исправить — по шагам</h4>"
         f"{_fix_block(primary)}"
-        "<div class=\"giga-actions\">"
-        f"<button type=\"button\" class=\"giga-btn\" "
-        f"data-title=\"{esc(primary.title)}\" "
-        f"data-severity=\"{esc(severity_label)}\" "
-        f"data-url=\"{esc(giga_urls)}\" "
-        f"data-threat=\"{esc(primary.threat_type)}\" "
-        f"data-impact=\"{esc(primary.impact or '')}\" "
-        f"data-detection=\"{esc(primary.detection or '')}\" "
-        f"data-request=\"{esc(giga_requests)}\" "
-        f"data-evidence=\"{esc(giga_evidence)}\" "
-        f"data-recommendation=\"{esc(primary.recommendation or '')}\">"
-        "ГигаЧат</button>"
-        "<span class=\"giga-hint\">спросить эксперта по информационной безопасности "
-        "(история диалога сохраняется для этого вида ошибки)</span>"
-        "</div></div>"
+        "</div>"
     )
 
     details = (
@@ -2043,11 +1736,31 @@ def _group_row(index: int, findings: Sequence[Finding]) -> str:
         f"<p>{esc(primary.impact or 'Описание для этого типа находки не задано.')}</p></div>"
         "<div class=\"block logic full\"><h4>Почему сканер так решил</h4>"
         f"<p>{esc(primary.detection or 'Логика проверки описана в названии находки.')}</p></div>"
+        f"{_references_block(primary)}"
         f"{fix_block}"
         f"{cases_html}"
         "</div></td></tr>"
     )
     return row + details
+
+
+def _references_block(finding: Finding) -> str:
+    if not (finding.identifiers or finding.sources or finding.references or finding.cpe):
+        return ""
+    parts = ["<div class=\"block full\"><h4>Подробнее об этой проблеме</h4>"]
+    if finding.identifiers:
+        parts.append(f"<p><b>Идентификаторы:</b> {esc(', '.join(finding.identifiers))}</p>")
+    if finding.sources:
+        parts.append(f"<p><b>Источники:</b> {esc(', '.join(finding.sources))}</p>")
+    if finding.cpe:
+        parts.append(f"<p><b>CPE:</b> <code>{esc(finding.cpe)}</code></p>")
+    if finding.exploited:
+        parts.append("<p><b>Приоритет KEV:</b> известна реальная эксплуатация.</p>")
+    if finding.references:
+        links = "".join(f"<li>{_link(url)}</li>" for url in finding.references)
+        parts.append(f"<p><b>Документация:</b></p><ul class=\"lines\">{links}</ul>")
+    parts.append("</div>")
+    return "".join(parts)
 
 
 def _cases_block(findings: Sequence[Finding]) -> str:
@@ -2090,7 +1803,8 @@ def _cases_block(findings: Sequence[Finding]) -> str:
 # ---------- печатная версия (сохранение в PDF) ----------
 def _pdf_report(stats: Dict[str, object], _by_severity: Dict[str, int],
                 _by_confidence: Dict[str, int], critical: Sequence[Finding],
-                items: Sequence[Finding], total: int, generated: str) -> str:
+                items: Sequence[Finding], total: int, generated: str,
+                vulns: Sequence[Dict[str, object]] = ()) -> str:
     # В PDF только самые опасные: уровень High (подтверждённые — первыми).
     high = [item for item in items if item.severity == HIGH]
     critical_ids = {id(item) for item in critical}
@@ -2129,6 +1843,7 @@ def _pdf_report(stats: Dict[str, object], _by_severity: Dict[str, int],
         parts.append("<h2>Находок высокого уровня нет</h2>"
                      "<p>Сканер не нашёл проблем наивысшей опасности. Средние и низкие "
                      "находки — только в HTML-версии отчёта.</p>")
+    parts.append(report_vulns.pdf_block(vulns))
 
     parts.append(
         "<p class=\"pdf-foot\">В PDF попали только находки уровня «Высокая». Средние, низкие "

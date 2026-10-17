@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from .fixes import steps_for
-from .knowledge import describe
+from .knowledge import describe, references_for
 
 # --- Уровни критичности ---------------------------------------------------
 HIGH = "High"
@@ -45,10 +45,20 @@ class Finding:
     impact: str = ""
     detection: str = ""
     fix_steps: List[str] = field(default_factory=list)
+    # Внешний контекст для известных уязвимостей. Эти поля необязательны,
+    # поэтому существующие проверки и отчёты остаются совместимыми.
+    references: List[str] = field(default_factory=list)
+    identifiers: List[str] = field(default_factory=list)
+    sources: List[str] = field(default_factory=list)
+    cpe: str = ""
+    exploited: bool = False
+    # Для находок каталожного анализа: список CVE компонента (VulnMatch.as_dict()).
+    vuln_matches: List[Dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         info = describe(self.kind)
-        self.threat_type = self.threat_type or info.get("type", "")
+        known_type = info.get("type", "")
+        self.threat_type = self.threat_type or known_type
         self.impact = self.impact or info.get("impact", "")
         self.detection = self.detection or info.get("detection", "")
         if not self.threat_type:
@@ -56,6 +66,11 @@ class Finding:
                                 else "Уязвимость приложения")
         if not self.fix_steps:
             self.fix_steps = steps_for(self.kind, self.recommendation)
+        if not self.references:
+            # Ссылка на документацию, чтобы разобраться в проблеме глубже (OWASP,
+            # CWE/MITRE, PortSwigger). Находки с каталожными данными (NVD/KEV) уже
+            # приходят со своими references — здесь это условие не сработает.
+            self.references = references_for(self.kind, known_type)
 
     @property
     def dedup_key(self) -> Tuple[str, str, str]:
@@ -80,6 +95,14 @@ class FindingList:
         for finding in findings:
             self.add(finding)
 
+    def discard(self, predicate) -> int:
+        """Удаляет находки, для которых ``predicate(finding)`` истинно."""
+        kept = [item for item in self._items if not predicate(item)]
+        removed = len(self._items) - len(kept)
+        self._items = kept
+        self._seen = {item.dedup_key for item in kept}
+        return removed
+
     def sorted(self) -> List[Finding]:
         return sorted(
             self._items,
@@ -103,6 +126,27 @@ class FindingList:
 
     def __iter__(self):
         return iter(self._items)
+
+
+# Находки уровня High, которые сама проба или каталог подтверждают независимо от эвристики:
+# сообщение об ошибке СУБД, исполняемая разметка в ответе, ошибка оболочки, записи NVD/KEV.
+# Остальные «подозрения» с уровнем High опускаются до Medium: без подтверждения такой
+# уровень вводит в заблуждение и засоряет очередь работ.
+VERIFIED_HIGH_KINDS = frozenset({
+    "xss_js_context", "xss_unescaped", "sqli_error", "nosqli_error", "command_injection",
+    "known_cve", "known_cve_kev", "known_bdu", "sqli_auth_bypass", "sqli_boolean_blind", "sqli_time_blind",
+})
+
+
+def apply_confidence_policy(findings: "FindingList") -> int:
+    """Единая политика уверенности; возвращает число понижённых находок."""
+    lowered = 0
+    for finding in findings:
+        if (finding.severity == HIGH and finding.confidence == SUSPECTED
+                and finding.kind not in VERIFIED_HIGH_KINDS):
+            finding.severity = MEDIUM
+            lowered += 1
+    return lowered
 
 
 @dataclass

@@ -2,16 +2,25 @@
 
 Ограничения:
   * таймаут не более 5 секунд;
-  * общее число HTTP-запросов не более 600;
-  * обход сайта не более 60 страниц в пределах домена;
+  * общее число HTTP-запросов не более 1000;
+  * обход сайта не более 100 страниц в пределах домена;
   * размер читаемого тела ответа не более 1 МБ;
-  * принудительная пауза 0.1 с между запросами.
+  * принудительная пауза 0.1 с между стартами запросов.
+
+Параллельность (``request_many``) только перекрывает ожидание ответов: старты
+запросов по-прежнему разнесены не менее чем на ``delay`` секунд, то есть частота
+обращений к сайту не выше, чем при последовательной работе. Счётчики и лимит
+запросов защищены блокировкой.
 """
 
+import ipaddress
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import warnings
 from http.cookies import SimpleCookie
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urljoin
 
 import requests
 import urllib3
@@ -25,9 +34,13 @@ warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 MAX_TIMEOUT = 5.0
 MIN_DELAY = 0.1
 MAX_BODY_BYTES = 1024 * 1024  # 1 МБ
-MAX_REQUESTS = 600  # жёсткий потолок общего числа HTTP-запросов за сканирование
-MAX_PAGES = 60  # жёсткий потолок числа страниц обхода в пределах домена
+MAX_REQUESTS = 1000  # жёсткий потолок общего числа HTTP-запросов за сканирование
+MAX_PAGES = 100  # жёсткий потолок числа страниц обхода в пределах домена
 CHUNK_SIZE = 8192
+MAX_CONCURRENCY = 8
+DEFAULT_CONCURRENCY = 4
+READ_DEADLINE = 20.0  # общий срок чтения тела ответа: защита от «медленной капли» (slowloris)
+MAX_CONSECUTIVE_TIMEOUTS = 6  # после стольких таймаутов подряд сайт считается «молчащим»
 DEFAULT_USER_AGENT = (
     "BaumanSecScanner/1.0 (educational configuration scanner; "
     "safe, non-destructive checks)"
@@ -44,6 +57,7 @@ class HttpClient:
         user_agent: str = DEFAULT_USER_AGENT,
         verify_tls: bool = True,
         verbose: bool = False,
+        concurrency: int = DEFAULT_CONCURRENCY,
     ) -> None:
         self.timeout = min(float(timeout), MAX_TIMEOUT)
         self.delay = max(float(delay), MIN_DELAY)
@@ -51,6 +65,10 @@ class HttpClient:
         self.max_body_bytes = int(max_body_bytes)
         self.verify_tls = verify_tls
         self.verbose = verbose
+        self.concurrency = max(1, min(int(concurrency), MAX_CONCURRENCY))
+        self.rate_limited = False  # сайт ответил 429/503 — переходим на щадящий режим
+        self._lock = threading.RLock()
+        self._next_slot = 0.0
 
         self.requests_made = 0
         self.insecure_requests = 0  # запросы, выполненные без проверки сертификата
@@ -60,6 +78,11 @@ class HttpClient:
 
         self.session = requests.Session()
         self.session.max_redirects = 5
+        self.session.hooks["response"].append(_block_internal_redirect)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=MAX_CONCURRENCY,
+                                                pool_maxsize=MAX_CONCURRENCY * 2)
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
         self.session.headers.update(
             {
                 "User-Agent": user_agent,
@@ -67,7 +90,8 @@ class HttpClient:
                 "Accept-Encoding": "gzip, deflate",
             }
         )
-        self._last_request_at = 0.0
+        self.consecutive_timeouts = 0
+        self.gave_up = False  # True, если сканирование остановлено из-за молчащего сайта
 
     # --- бюджет запросов --------------------------------------------------
     @property
@@ -77,11 +101,48 @@ class HttpClient:
     def can_request(self, reserve: int = 0) -> bool:
         return self.remaining > reserve
 
+    def _acquire(self, reserve: int = 0) -> bool:
+        """Атомарно занимает единицу бюджета; False — бюджет исчерпан."""
+        with self._lock:
+            if self.max_requests - self.requests_made <= reserve:
+                self.budget_exhausted = True
+                return False
+            self.requests_made += 1
+            return True
+
     def _throttle(self) -> None:
-        elapsed = time.monotonic() - self._last_request_at
-        if self._last_request_at and elapsed < self.delay:
-            time.sleep(self.delay - elapsed)
-        self._last_request_at = time.monotonic()
+        """Резервирует слот старта: между стартами любых запросов — не меньше delay."""
+        with self._lock:
+            now = time.monotonic()
+            slot = max(now, self._next_slot)
+            self._next_slot = slot + self.delay
+        wait = slot - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+
+    def _note_response(self, response) -> None:
+        """429/503 — признак ограничения частоты: убавляем параллельность и замедляемся."""
+        if response.status_code in (429, 503) and not self.rate_limited:
+            with self._lock:
+                self.rate_limited = True
+                self.concurrency = 1
+                self.delay = max(self.delay, 0.5)
+
+    def request_many(self, calls: Sequence[Tuple[str, str, dict]]) -> List[Optional[requests.Response]]:
+        """Выполняет запросы ``(method, url, kwargs)`` параллельно; результаты — в порядке ввода.
+
+        Анализ ответов вызывающий код ведёт последовательно по этому списку, поэтому
+        порядок находок не зависит от скорости ответов.
+        """
+        if not calls:
+            return []
+        workers = min(self.concurrency, len(calls))
+        if workers <= 1:
+            return [self.request(method, url, **kwargs) for method, url, kwargs in calls]
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(self.request, method, url, **kwargs)
+                       for method, url, kwargs in calls]
+            return [future.result() for future in futures]
 
     # --- основной метод ---------------------------------------------------
     def request(
@@ -97,8 +158,11 @@ class HttpClient:
         reserve: int = 0,
     ) -> Optional[requests.Response]:
         """Выполняет запрос. Возвращает None при ошибке или исчерпании бюджета."""
-        if not self.can_request(reserve):
-            self.budget_exhausted = True
+        if self.consecutive_timeouts >= MAX_CONSECUTIVE_TIMEOUTS:
+            # Сайт/WAF молча не отвечает: каждый запрос стоил бы полный таймаут.
+            self.gave_up = True
+            return None
+        if not self._acquire(reserve):
             return None
 
         host = _host(url)
@@ -114,21 +178,25 @@ class HttpClient:
             and host in self.tls_errors
         ):
             # Первая ошибка сертификата — один повтор без верификации.
-            if not self.can_request(reserve):
-                self.budget_exhausted = True
+            if not self._acquire(reserve):
                 return None
             response = self._send(method, url, headers, data, allow_redirects, verify=False)
             if response is not None:
-                self.insecure_requests += 1
+                with self._lock:
+                    self.insecure_requests += 1
         elif response is not None and known_bad_tls:
-            self.insecure_requests += 1
+            with self._lock:
+                self.insecure_requests += 1
 
         if response is None:
             return None
+        self._note_response(response)
 
         # Каждый промежуточный редирект — это отдельный сетевой запрос,
         # он тоже должен учитываться в общем лимите.
-        self.requests_made += len(response.history)
+        with self._lock:
+            self.consecutive_timeouts = 0
+            self.requests_made += len(response.history)
         self._read_limited(response, read_body, max_body_bytes)
         return response
 
@@ -138,7 +206,6 @@ class HttpClient:
     # --- внутреннее -------------------------------------------------------
     def _send(self, method, url, headers, data, allow_redirects, verify):
         self._throttle()
-        self.requests_made += 1
         if self.verbose:
             print(f"  [{self.requests_made:>3}/{self.max_requests}] {method} {url}")
         try:
@@ -157,12 +224,19 @@ class HttpClient:
                     verify=verify,
                 )
         except requests.exceptions.SSLError as exc:
-            self.tls_errors.setdefault(_host(url), str(exc))
-            self.errors.append((url, f"Ошибка TLS: {exc}"))
+            with self._lock:
+                self.tls_errors.setdefault(_host(url), str(exc))
+                self.errors.append((url, f"Ошибка TLS: {exc}"))
+        except requests.exceptions.Timeout as exc:
+            with self._lock:
+                self.consecutive_timeouts += 1
+                self.errors.append((url, f"{type(exc).__name__}: {exc}"))
         except RequestException as exc:
-            self.errors.append((url, f"{type(exc).__name__}: {exc}"))
+            with self._lock:
+                self.errors.append((url, f"{type(exc).__name__}: {exc}"))
         except Exception as exc:  # непредвиденная ошибка не должна ломать скан
-            self.errors.append((url, f"{type(exc).__name__}: {exc}"))
+            with self._lock:
+                self.errors.append((url, f"{type(exc).__name__}: {exc}"))
         return None
 
     def _read_limited(self, response: requests.Response, read_body: bool,
@@ -171,6 +245,7 @@ class HttpClient:
         limit = self.max_body_bytes if max_body_bytes is None else max_body_bytes
         content = b""
         truncated = False
+        deadline = time.monotonic() + max(READ_DEADLINE, self.timeout * 4)
         if read_body:
             try:
                 for chunk in response.iter_content(CHUNK_SIZE):
@@ -179,10 +254,12 @@ class HttpClient:
                         truncated = True
                         content = content[:limit]
                         break
-            except RequestException as exc:
-                self.errors.append((response.url, f"Ошибка чтения тела: {exc}"))
+                    if time.monotonic() > deadline:
+                        truncated = True
+                        break
             except Exception as exc:
-                self.errors.append((response.url, f"Ошибка чтения тела: {exc}"))
+                with self._lock:
+                    self.errors.append((response.url, f"Ошибка чтения тела: {exc}"))
         else:
             truncated = True
         try:
@@ -194,6 +271,32 @@ class HttpClient:
         response.truncated = truncated  # type: ignore[attr-defined]
         if not response.encoding:
             response.encoding = response.apparent_encoding or "utf-8"
+
+
+def _is_internal_host(host: str) -> bool:
+    """localhost, loopback, частные и link-local адреса (по литералу, без DNS-запроса)."""
+    host = (host or "").strip("[]").lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return (address.is_loopback or address.is_private or address.is_link_local
+            or address.is_unspecified or address.is_reserved)
+
+
+def _block_internal_redirect(response, *_args, **_kwargs):
+    """Публичный сайт не может перенаправить сканер на внутренний адрес (защита от SSRF)."""
+    location = response.headers.get("Location")
+    if not location or response.status_code not in (301, 302, 303, 307, 308):
+        return response
+    source = _host(response.url)
+    destination = _host(urljoin(response.url, location))
+    if _is_internal_host(destination) and not _is_internal_host(source):
+        response.close()
+        raise requests.exceptions.InvalidURL("перенаправление на внутренний адрес отклонено")
+    return response
 
 
 def _host(url: str) -> str:

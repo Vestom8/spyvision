@@ -13,7 +13,7 @@
 безопасности, но и разработчики и заказчики.
 """
 
-from typing import Dict
+from typing import Dict, List
 
 # --- типы угроз (используются как краткая метка в таблице отчёта) ---------
 T_XSS = "Внедрение кода в страницу (XSS)"
@@ -739,6 +739,16 @@ KNOWLEDGE: Dict[str, Dict[str, str]] = {
         "detection": "По типовому адресу панели получен ответ 200 с её страницей входа. "
                      "Подбор пароля сканер не выполнял.",
     },
+    "exposed_admin_panel": {
+        "type": T_ACCESS,
+        "impact": "Панель мониторинга, служебный API или административная консоль доступны "
+                  "без авторизации. Через них обычно читают внутреннюю конфигурацию, список "
+                  "сервисов, метрики и иногда данные целиком (например, индексы Elasticsearch "
+                  "или очереди RabbitMQ), а часть таких панелей позволяет и менять настройки.",
+        "detection": "По типовому адресу панели или служебного API получен ответ 200 с "
+                     "характерным содержимым (название продукта, структура ответа), без "
+                     "перенаправления на форму входа. Подбор пароля сканер не выполнял.",
+    },
     "exposed_logs": {
         "type": T_LEAK,
         "impact": "В журналах ошибок оседают пути на диске, SQL-запросы, параметры запросов "
@@ -1218,6 +1228,94 @@ KNOWLEDGE: Dict[str, Dict[str, str]] = {
                      "сервера — значит, перевод строки не отфильтрован.",
     },
 
+    # ==================== SSRF и подтверждение эксплуатации (--pentest) ======
+    "ssrf_metadata_exposure": {
+        "type": T_RCE,
+        "impact": "Сервер сам выполняет HTTP-запрос по адресу из параметра. Если его можно "
+                  "направить на служебный адрес 169.254.169.254, через приложение читаются "
+                  "временные учётные данные облачного экземпляра (ключи IAM/метаданные), "
+                  "которыми дальше захватывают всю облачную инфраструктуру, а не только сайт.",
+        "detection": "В параметр подставлен адрес cloud-metadata-сервиса. В ответе сервера "
+                     "оказалось его характерное содержимое (ami-id, instance-id и подобные "
+                     "поля) — значит, сервер выполнил запрос по переданному адресу и вернул "
+                     "результат. Запрос был только на чтение.",
+    },
+    "ssrf_internal_connect": {
+        "type": T_RCE,
+        "impact": "Параметр заставляет сервер соединяться с адресом, который мы указали. Это "
+                  "открывает доступ во внутреннюю сеть за периметром: через такой параметр "
+                  "можно достать до панелей управления, баз данных и других служб, которые "
+                  "не предназначены для доступа из интернета.",
+        "detection": "Сравнивались ответы на заведомо недостижимый внешний домен (ошибка DNS) "
+                     "и на внутренний адрес с закрытым портом (ошибка соединения). Разные "
+                     "формулировки ошибки означают, что сервер в обоих случаях реально "
+                     "пытался подключиться по переданному адресу. Открытый порт не найден, "
+                     "поэтому статус «подозрение» — нужна ручная проверка кода.",
+    },
+    "cve_confirmed_jenkins_script_console": {
+        "type": T_RCE,
+        "impact": "Консоль Groovy-скриптов Jenkins выполняет произвольный код с правами "
+                  "процесса Jenkins — это, как правило, полный доступ к CI/CD, секретам "
+                  "сборок и серверам, на которые Jenkins имеет доступ по SSH/API.",
+        "detection": "Запрошен путь /script без авторизации. Ответ не был перенаправлен на "
+                     "форму входа и содержит форму консоли Groovy-скриптов — значит, раздел "
+                     "доступен анонимно. Сканер не отправлял в консоль ни одного скрипта: "
+                     "сама доступность консоли уже является находкой уровня «Высокий».",
+    },
+    "cve_confirmed_grafana_traversal": {
+        "type": T_LEAK,
+        "impact": "CVE-2021-43798 позволяет прочитать любой файл, доступный процессу Grafana, "
+                  "включая файлы конфигурации с учётными данными источников данных и ключами. "
+                  "Из такого набора обычно разворачивается полноценный доступ к связанным "
+                  "системам (БД, S3, SMTP и т. п.).",
+        "detection": "Запрошен известный уязвимый путь каталога плагинов с переходом «..» к "
+                     "заведомо безвредному системному файлу. В ответе найдено его характерное "
+                     "содержимое — значит, путь не проверяется и ведёт за пределы каталога "
+                     "плагина. Файл только читался, изменений не было.",
+    },
+    "sqli_auth_bypass": {
+        "type": T_SQLI,
+        "impact": "Проверка логина и пароля собирается в SQL-запрос конкатенацией строк. "
+                  "Классический payload обрывает условие по паролю, и сервер выдаёт рабочую "
+                  "сессию под указанной учётной записью без знания пароля — это полный обход "
+                  "авторизации, а не предположение по тексту ошибки.",
+        "detection": "Выполнен контрольный вход с заведомо несуществующими логином и паролем, "
+                     "затем — с классическим payload'ом обхода (например, admin' -- ) в поле "
+                     "логина. Ответ изменился с обычного отказа на успешный вход (редирект "
+                     "за пределы страницы входа или исчезновение фразы об ошибке) вместе с "
+                     "выдачей новой сессии. Контрольный payload с синтаксически похожим, но "
+                     "ложным условием обхода не дал — значит, причина именно в SQL-инъекции. "
+                     "Сканер только вошёл один раз под именем из payload'а: пароль не менялся, "
+                     "данные не читались и не изменялись.",
+    },
+    "sqli_boolean_blind": {
+        "type": T_SQLI,
+        "impact": "Параметр управляет условием SQL-запроса даже без видимой ошибки СУБД: "
+                  "подставленное логическое условие меняет сам результат запроса. Это рабочий "
+                  "канал для слепого извлечения данных побайтово (булева слепая инъекция) — "
+                  "учётных записей, хэшей паролей, содержимого других таблиц.",
+        "detection": "В параметр подставлена пара условий — заведомо истинное (OR '1'='1') "
+                     "и заведомо ложное (AND '1'='2') — поверх исходного значения. Истинное "
+                     "условие дало ответ, неотличимый от обычного; ложное условие заметно "
+                     "изменило структуру и объём ответа. Такая разница воспроизводится только "
+                     "тогда, когда параметр действительно влияет на SQL-запрос, поэтому "
+                     "находка подтверждена, а не предположительна.",
+    },
+    "sqli_time_blind": {
+        "type": T_SQLI,
+        "impact": "Параметр исполняется как часть SQL-запроса даже без какой-либо видимой "
+                  "разницы в содержимом ответа: сервер выполняет функцию задержки, которую "
+                  "сканер подставил в значение. Это слепая инъекция по времени — медленный, "
+                  "но надёжный канал извлечения данных, который обычно пропускают проверки, "
+                  "смотрящие только на текст ответа.",
+        "detection": "В параметр подставлена функция задержки СУБД (SLEEP/pg_sleep/WAITFOR "
+                     "DELAY). Ответ занял заметно больше времени, чем обычно, задержка "
+                     "воспроизвелась повторно, а контрольный запрос с нулевой задержкой "
+                     "выполнился быстро — случайная медленная сеть или нагрузка на сервер "
+                     "дали бы задержку и в контрольном запросе тоже. Сама задержка — "
+                     "единственное действие пробы; данные не извлекались.",
+    },
+
     # ==================== прочее ====================
     "external_links": {
         "type": T_OK,
@@ -1370,9 +1468,156 @@ KNOWLEDGE: Dict[str, Dict[str, str]] = {
         "detection": "Прямой SQLi-маркер не дал ошибки СУБД (или был заблокирован), а "
                      "обфусцированный (комментарии /**/, LIKE) — дал.",
     },
+
+    # ==================== Каталоги известных уязвимостей ============
+    "known_vulnerability": {
+        "type": "Известная уязвимость программного компонента",
+        "impact": "Обнаруженная версия компонента может входить в диапазон, затронутый "
+                  "опубликованной уязвимостью. Реальный риск зависит от точной сборки, "
+                  "конфигурации и доступности уязвимого кода.",
+        "detection": "Компонент и версия определены пассивно по уже загруженной странице, "
+                     "сопоставлены с CPE/CVE в NVD и дополнены данными KEV "
+                     "и ExploitDB. До сверки с инвентаризацией результат считается подозрением.",
+    },
+    "known_cve": {
+        "type": "Известные уязвимости компонента (CVE)",
+        "impact": "Версия компонента попадает в диапазоны опубликованных уязвимостей. Для "
+                  "многих из них есть готовые описания атак, а иногда и публичные эксплойты: "
+                  "злоумышленнику не нужно искать уязвимость самому.",
+        "detection": "Компонент и версия определены пассивно (заголовки, meta generator, "
+                     "имена и баннеры JS/CSS) — без дополнительных запросов к сайту. Затем "
+                     "продукт сопоставлен с CPE в NVD, версия сверена с диапазонами CVE "
+                     "локально, добавлены данные CISA KEV и ExploitDB. Версия из "
+                     "баннера может быть бэкпортирована дистрибутивом, поэтому результат "
+                     "всегда помечается как подозрение.",
+    },
+    "known_bdu": {
+        "type": "Известные уязвимости компонента (БДУ ФСТЭК)",
+        "impact": "В банке данных угроз безопасности информации ФСТЭК России есть записи об "
+                  "уязвимостях, затрагивающих эту версию компонента, а среди CVE, привязанных "
+                  "к версии в NVD, их нет: у продукта нет CPE, у записи нет CVE или NVD не "
+                  "относит к ней эту версию. Для таких записей БДУ обычно содержит меры "
+                  "поставщика и сведения о наличии эксплойта.",
+        "detection": "Компонент и версия определены пассивно (заголовки, meta generator, "
+                     "баннеры JS/CSS) — без дополнительных запросов к сайту. Название продукта "
+                     "сопоставлено с названиями в выгрузке БДУ (с согласованием производителя "
+                     "для коротких названий), а версия проверена по выражениям БДУ («до X», "
+                     "«от X до Y», точная версия); записи с неразборчивой версией пропускаются. "
+                     "Сопоставление по названию менее надёжно, чем по CPE, возможна путаница "
+                     "одноимённых продуктов и бэкпорт исправления, поэтому результат всегда "
+                     "помечается как подозрение и не поднимается выше среднего уровня без KEV.",
+    },
+    "known_cve_kev": {
+        "type": "Эксплуатируемая уязвимость компонента (CISA KEV)",
+        "impact": "Как минимум одна уязвимость компонента включена CISA в каталог реально "
+                  "эксплуатируемых (KEV): её уже используют в атаках, в том числе "
+                  "автоматизированных. Это наивысший приоритет исправления.",
+        "detection": "Пассивный fingerprint → CPE/CVE в NVD с локальной проверкой диапазонов "
+                     "версий → совпадение CVE с каталогом CISA KEV. Версия из баннера может "
+                     "быть бэкпортирована дистрибутивом, поэтому результат помечается как "
+                     "подозрение и требует сверки с инвентаризацией.",
+    },
+    "component_version_disclosed": {
+        "type": "Раскрытие версий компонентов",
+        "impact": "Точные версии упрощают подбор эксплойтов: при публикации новой "
+                  "уязвимости сайт сразу попадёт в выборку сканеров атакующих.",
+        "detection": "Версии определены пассивно по уже загруженным страницам; в NVD, "
+                     "CISA KEV и ExploitDB совпадений для них не найдено.",
+    },
 }
 
 
 def describe(kind: str) -> Dict[str, str]:
     """Возвращает пояснения для вида находки (пустые строки, если вида нет в базе)."""
     return KNOWLEDGE.get(kind, {})
+
+
+# ============================================================================
+# Ссылки на документацию — чтобы разобраться в проблеме глубже, чем позволяет
+# место в отчёте. Каждая находка получает одну из двух:
+#
+# * точную ссылку для конкретного вида находки (``KIND_REFERENCES``) — там,
+#   где есть более предметный материал (конкретная техника атаки или CVE);
+# * иначе общую ссылку по типу угрозы (``TYPE_REFERENCES``) — остальным 140+
+#   видам находок вручную подбирать ссылку по одной не нужно.
+#
+# Источники — только официальные и общепризнанные: OWASP (Cheat Sheet Series,
+# Top 10, WSTG), CWE/MITRE, NVD и PortSwigger Web Security Academy (для техник
+# атак написан самый подробный и практический материал в открытом доступе).
+# Для «проблем не обнаружено» и находок без установленного типа ссылка не
+# нужна — пустой список.
+# ============================================================================
+
+TYPE_REFERENCES: Dict[str, List[str]] = {
+    T_XSS: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+            "Cross_Site_Scripting_Prevention_Cheat_Sheet.html"],
+    T_SQLI: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+             "SQL_Injection_Prevention_Cheat_Sheet.html"],
+    T_LEAK: ["https://cwe.mitre.org/data/definitions/200.html"],
+    T_SOURCE: ["https://cwe.mitre.org/data/definitions/540.html"],
+    T_TRAFFIC: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                "Transport_Layer_Protection_Cheat_Sheet.html"],
+    T_SESSION: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                "Session_Management_Cheat_Sheet.html"],
+    T_CSRF: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+             "Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html"],
+    T_CLICKJACK: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                  "Clickjacking_Defense_Cheat_Sheet.html"],
+    T_PHISHING: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                 "Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"],
+    T_RECON: ["https://owasp.org/www-project-web-security-testing-guide/stable/"
+              "4-Web_Application_Security_Testing/01-Information_Gathering/"],
+    T_ACCESS: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+               "Authorization_Cheat_Sheet.html"],
+    T_CONFIG: ["https://owasp.org/Top10/A05_2021-Security_Misconfiguration/"],
+    T_AVAILABILITY: ["https://cwe.mitre.org/data/definitions/400.html"],
+    T_RCE: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+            "OS_Command_Injection_Defense_Cheat_Sheet.html"],
+    T_SUPPLY: ["https://cheatsheetseries.owasp.org/cheatsheets/"
+               "Third_Party_Javascript_Management_Cheat_Sheet.html"],
+}
+
+# Точнее, чем общая ссылка по типу — конкретная техника атаки или конкретная CVE.
+KIND_REFERENCES: Dict[str, List[str]] = {
+    "ssrf_metadata_exposure": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                               "Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"],
+    "ssrf_internal_connect": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                              "Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"],
+    "ssti": ["https://portswigger.net/web-security/server-side-template-injection"],
+    "lfi_traversal": ["https://cwe.mitre.org/data/definitions/22.html"],
+    "crlf_injection": ["https://owasp.org/www-community/vulnerabilities/CRLF_Injection"],
+    "command_injection": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                          "OS_Command_Injection_Defense_Cheat_Sheet.html"],
+    "sqli_error": ["https://portswigger.net/web-security/sql-injection"],
+    "sqli_status": ["https://portswigger.net/web-security/sql-injection/blind"],
+    "sqli_structure": ["https://portswigger.net/web-security/sql-injection/blind"],
+    "sqli_auth_bypass": ["https://portswigger.net/web-security/sql-injection/"
+                         "cheat-sheet"],
+    "sqli_boolean_blind": ["https://portswigger.net/web-security/sql-injection/blind"],
+    "sqli_time_blind": ["https://portswigger.net/web-security/sql-injection/blind"],
+    "nosqli_error": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                     "NoSQL_Injection_Prevention_Cheat_Sheet.html"],
+    "cve_confirmed_grafana_traversal": ["https://nvd.nist.gov/vuln/detail/CVE-2021-43798"],
+    "cve_confirmed_jenkins_script_console": [
+        "https://www.jenkins.io/doc/book/security/securing-jenkins/"],
+    "open_redirect": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                      "Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"],
+    "open_redirect_meta": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                           "Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html"],
+    "bac_idor": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                "Authorization_Cheat_Sheet.html"],
+    "bac_header_bypass": ["https://cheatsheetseries.owasp.org/cheatsheets/"
+                         "Authorization_Cheat_Sheet.html"],
+    "waf_bypass_xss": ["https://portswigger.net/web-security/cross-site-scripting"],
+    "waf_bypass_sqli": ["https://portswigger.net/web-security/sql-injection"],
+    "xss_js_context": ["https://portswigger.net/web-security/cross-site-scripting"],
+    "xss_unescaped": ["https://portswigger.net/web-security/cross-site-scripting/reflected"],
+    "xss_quotes": ["https://portswigger.net/web-security/cross-site-scripting/reflected"],
+    "component_version_disclosed": ["https://cwe.mitre.org/data/definitions/200.html"],
+}
+
+
+def references_for(kind: str, type_label: str) -> List[str]:
+    """Ссылка для раздела «Источники» в отчёте: точная для вида находки,
+    иначе общая по типу угрозы; пустой список, если ни то ни другое не задано."""
+    return KIND_REFERENCES.get(kind) or TYPE_REFERENCES.get(type_label) or []

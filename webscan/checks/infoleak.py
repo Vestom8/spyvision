@@ -1,7 +1,9 @@
 """Поиск утечек технической информации (раздел 4.5 требований)."""
 
+import base64
+import json
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from ..models import CONFIRMED, CONFIG, HIGH, INFO, LOW, MEDIUM, SUSPECTED, VULN, Finding, Page
 from ..utils import header_multivalues, mask_secret, snippet, truncate
@@ -19,6 +21,14 @@ VERSION_PATTERN = re.compile(r"\d+\.\d+(\.\d+)?")
 
 WINDOWS_PATH = re.compile(r"[A-Za-z]:\\(?:[\w .\-]+\\){1,}[\w .\-]*")
 UNIX_PATH = re.compile(r"/(?:home|root|var/www|usr/local|srv|opt|Users|www|app)/[\w./\-]{4,}")
+# Корни «/app/» и «/www/» часто бывают и обычными адресами сайта (/app/static/main.js):
+# путь файловой системы здесь только если он указывает на исходник или конфигурацию.
+GENERIC_ROOTS = ("/app/", "/www/")
+SOURCE_EXTENSIONS = (".php", ".py", ".rb", ".java", ".pl", ".cs", ".conf", ".ini", ".log", ".inc",
+                     ".env", ".yml", ".yaml")
+# Перед адресом стоит атрибут разметки или url(…) — это ссылка, а не вывод ошибки.
+URL_CONTEXT = re.compile(r"(?i)(?:\b(?:src|href|action|poster|data-[\w-]+|content)\s*=\s*[\"']?|"
+                         r"url\(\s*[\"']?|import\(\s*[\"']?|from\s+[\"'])$")
 PRIVATE_IP = re.compile(
     r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
     r"|192\.168\.\d{1,3}\.\d{1,3}"
@@ -80,7 +90,11 @@ def check_info_leak(page: Page) -> List[Finding]:
         for value in multi.get(name, []):
             if not value.strip():
                 continue
-            detailed = bool(VERSION_PATTERN.search(value))
+            if _is_cdn_banner(name, value):
+                continue
+            # В Via «1.1 vegur» — версия протокола HTTP, а в x-runtime — время ответа.
+            checked = re.sub(r"(?i)\b\d\.\d\s+", "", value) if name == "via" else value
+            detailed = name in PRODUCT_HEADERS and bool(VERSION_PATTERN.search(checked))
             add(
                 f"Заголовок {name} раскрывает используемое ПО"
                 + (" и его версию" if detailed else ""),
@@ -110,7 +124,7 @@ def check_info_leak(page: Page) -> List[Finding]:
         break
 
     # --- абсолютные пути ---
-    paths = _unique(WINDOWS_PATH.findall(body)) + _unique(UNIX_PATH.findall(body))
+    paths = _unique(WINDOWS_PATH.findall(body)) + _unique(_unix_paths(body))
     paths = [p for p in _unique(paths) if len(p) > 8][:8]
     if paths:
         add(
@@ -184,9 +198,18 @@ def check_info_leak(page: Page) -> List[Finding]:
     for label, pattern in SECRET_PATTERNS:
         match = pattern.search(body)
         if match:
+            severity = HIGH
+            if label == "Google API key":
+                # Ключи Google для браузера (Maps, Firebase) публичны по замыслу; важно лишь
+                # ограничение по адресу сайта в консоли Google Cloud.
+                severity = INFO
+            elif label == "JWT-токен":
+                if _is_public_jwt(match.group(0)):
+                    continue
+                severity = MEDIUM
             add(
                 f"Возможная утечка секретных данных в коде страницы: {label}",
-                HIGH,
+                severity,
                 "Уберите секрет из клиентского кода и считайте его скомпрометированным — "
                 "перевыпустите ключ/пароль. Секреты должны храниться только на сервере.",
                 f"{label}: {mask_secret(match.group(0), 6)} (значение в отчёте маскировано)",
@@ -194,6 +217,42 @@ def check_info_leak(page: Page) -> List[Finding]:
                 confidence=SUSPECTED,
             )
     return findings
+
+
+CDN_SERVER_NAMES = ("cloudflare", "akamaighost", "akamai", "cloudfront", "amazons3", "fastly",
+                    "ddos-guard", "gws", "sffe", "vercel", "netlify", "envoy")
+
+
+def _is_cdn_banner(header: str, value: str) -> bool:
+    """«Server: cloudflare» без номера версии — название сервиса, а не версия ПО сервера."""
+    return (header == "server"
+            and value.strip().lower() in CDN_SERVER_NAMES
+            and not VERSION_PATTERN.search(value))
+
+
+def _unix_paths(body: str) -> List[str]:
+    found: List[str] = []
+    for match in UNIX_PATH.finditer(body):
+        path = match.group(0)
+        if URL_CONTEXT.search(body[max(0, match.start() - 24):match.start()]):
+            continue
+        if path.startswith(GENERIC_ROOTS) and not path.lower().endswith(SOURCE_EXTENSIONS):
+            continue
+        found.append(path)
+    return found
+
+
+def _is_public_jwt(token: str) -> bool:
+    """JWT с ролью anon (публичный ключ Supabase и т. п.) — это не утечка сессии."""
+    parts = token.split(".")
+    if len(parts) < 2:
+        return False
+    payload = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        data: Optional[dict] = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+    except (ValueError, TypeError):
+        return False
+    return isinstance(data, dict) and str(data.get("role", "")).lower() == "anon"
 
 
 def _unique(items) -> List[str]:

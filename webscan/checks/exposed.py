@@ -339,7 +339,327 @@ SENSITIVE_PATHS: Tuple[Tuple[str, Tuple[str, ...], str, str, str, str], ...] = (
     ("/cgi-bin/", ("Index of", "cgi"), LOW, "Каталог cgi-bin",
      "Ограничьте выполнение к cgi-bin и уберите ненужные скрипты.",
      "exposed_test_page"),
+
+    # ========================================================================
+    # Дальше — расширение базы путей до размеров аналогичных сканеров (Nikto,
+    # Nuclei): больше вариантов резервных копий и секретов, конфигов CI/CD,
+    # файлов IDE и облачных учётных данных, известных RCE-путей конкретных
+    # продуктов и прямых адресов панелей мониторинга/администрирования.
+    # Все запросы — GET, читаются только первые 512 байт ответа.
+    # ========================================================================
+
+    # --- ещё варианты файлов окружения и секретов -------------------------------
+    ("/.env.staging", ("=", "APP_", "DB_", "SECRET"), HIGH, "Файл окружения .env.staging",
+     "Удалите файл из веб-каталога и смените все секреты из него.",
+     "exposed_env"),
+    ("/.env.test", ("=", "APP_", "DB_"), HIGH, "Файл окружения .env.test",
+     "Удалите файл из веб-каталога и смените секреты.",
+     "exposed_env"),
+    ("/.env~", ("=", "APP_", "DB_", "SECRET"), HIGH, "Редакторная копия .env~",
+     "Удалите временные файлы редакторов из веб-корня и смените секреты.",
+     "exposed_env"),
+    ("/.netrc", ("machine", "login", "password"), HIGH, "Файл учётных данных .netrc",
+     "Удалите файл: в нём открытым текстом хранятся пароли для FTP/HTTP-хостов.",
+     "exposed_cloud_credentials"),
+    ("/.pgpass", (":",), HIGH, "Файл паролей PostgreSQL .pgpass",
+     "Удалите файл из веб-каталога и смените пароли к базе данных.",
+     "exposed_cloud_credentials"),
+    ("/.my.cnf", ("[client]", "password"), HIGH, "Конфигурация клиента MySQL .my.cnf",
+     "Удалите файл: в нём пароль к базе данных открытым текстом.",
+     "exposed_cloud_credentials"),
+    ("/.ssh/id_rsa", ("PRIVATE KEY",), HIGH, "Закрытый SSH-ключ id_rsa",
+     "Удалите ключ из веб-каталога и перевыпустите пару ключей.",
+     "exposed_private_key"),
+    ("/.ssh/id_ed25519", ("PRIVATE KEY",), HIGH, "Закрытый SSH-ключ id_ed25519",
+     "Удалите ключ из веб-каталога и перевыпустите пару ключей.",
+     "exposed_private_key"),
+    ("/.ssh/known_hosts", ("ssh-rsa", "ssh-ed25519", "ecdsa-sha2"), MEDIUM,
+     "Файл known_hosts",
+     "Удалите файл: он раскрывает адреса серверов, с которыми работает приложение.",
+     "exposed_cloud_credentials"),
+    ("/.gcloud/credentials.db", ("access_token", "refresh_token"), HIGH,
+     "Учётные данные Google Cloud SDK",
+     "Немедленно удалите файл и отзовите токены доступа к Google Cloud.",
+     "exposed_cloud_credentials"),
+    ("/.azure/credentials", ("subscription", "client_id", "client_secret"), HIGH,
+     "Учётные данные Azure CLI",
+     "Немедленно удалите файл и отзовите ключи доступа к Azure.",
+     "exposed_cloud_credentials"),
+    ("/.kube/config", ("apiVersion", "clusters:", "users:"), HIGH,
+     "Конфигурация доступа к кластеру Kubernetes",
+     "Немедленно удалите kubeconfig и отзовите учётные данные: файл даёт полный доступ "
+     "к управлению кластером.",
+     "exposed_cloud_credentials"),
+    ("/.docker/config.json", ("auths", "auth"), HIGH,
+     "Учётные данные Docker Registry",
+     "Удалите файл и отзовите токены доступа к реестру образов.",
+     "exposed_cloud_credentials"),
+    ("/serviceaccount/token", ("eyJ",), HIGH, "Токен Kubernetes ServiceAccount",
+     "Токен даёт доступ к Kubernetes API от имени службы — немедленно отозвать и "
+     "расследовать, как он попал в веб-корень.",
+     "exposed_cloud_credentials"),
+
+    # --- ещё резервные копии и дампы ---------------------------------------------
+    ("/backup.sql.gz", ("\x1f",), HIGH, "Сжатый дамп backup.sql.gz",
+     "Удалите дамп из веб-каталога.",
+     "exposed_dbdump"),
+    ("/dump.sql.gz", ("\x1f",), HIGH, "Сжатый дамп dump.sql.gz",
+     "Удалите дамп из веб-каталога.",
+     "exposed_dbdump"),
+    ("/mysql.sql", ("CREATE TABLE", "INSERT INTO"), HIGH, "Дамп базы данных mysql.sql",
+     "Немедленно удалите дамп и смените пароли из него.",
+     "exposed_dbdump"),
+    ("/backup.7z", ("7z",), HIGH, "Архив резервной копии .7z",
+     "Уберите архивы резервных копий из публичного каталога.",
+     "exposed_backup"),
+    ("/site.sql.zip", ("PK",), HIGH, "Архив дампа базы site.sql.zip",
+     "Уберите дамп базы из публичного каталога.",
+     "exposed_backup"),
+    ("/.git.zip", ("PK",), HIGH, "Архив репозитория .git.zip",
+     "Удалите архив: по нему полностью восстанавливается исходный код и история коммитов.",
+     "exposed_backup"),
+    ("/vendor.zip", ("PK",), MEDIUM, "Архив зависимостей vendor.zip",
+     "Уберите архивы зависимостей из веб-корня — они раскрывают версии библиотек.",
+     "exposed_backup"),
+    ("/node_modules.zip", ("PK",), MEDIUM, "Архив node_modules.zip",
+     "Уберите архивы зависимостей из веб-корня.",
+     "exposed_backup"),
+
+    # --- ещё системы контроля версий ---------------------------------------------
+    ("/.bzr/branch-format", ("Bazaar",), MEDIUM, "Служебные файлы Bazaar",
+     "Удалите каталог .bzr из веб-корня.",
+     "exposed_svn"),
+    ("/CVS/Root", (":", "/"), MEDIUM, "Служебные файлы CVS",
+     "Удалите каталог CVS из веб-корня.",
+     "exposed_svn"),
+    ("/.gitlab-ci.yml", ("stages:", "script:", "image:"), LOW, "Конфигурация GitLab CI",
+     "Файл раскрывает структуру пайплайна сборки. Не публикуйте секреты прямо в нём.",
+     "exposed_compose"),
+    ("/.travis.yml", ("language:", "script:"), LOW, "Конфигурация Travis CI",
+     "Файл раскрывает структуру сборки — проверьте, что в нём нет секретов открытым текстом.",
+     "exposed_compose"),
+    ("/.circleci/config.yml", ("version:", "jobs:"), LOW, "Конфигурация CircleCI",
+     "Файл раскрывает структуру пайплайна. Секреты должны храниться в переменных CI, а не в файле.",
+     "exposed_compose"),
+    ("/azure-pipelines.yml", ("trigger:", "steps:", "pool:"), LOW, "Конфигурация Azure Pipelines",
+     "Файл раскрывает структуру сборки — проверьте отсутствие секретов в открытом виде.",
+     "exposed_compose"),
+    ("/Jenkinsfile", ("pipeline", "stage(", "node {"), LOW, "Jenkinsfile",
+     "Файл раскрывает структуру CI/CD-пайплайна и используемые инструменты.",
+     "exposed_compose"),
+    ("/docker-compose.override.yml", ("services:", "image:"), MEDIUM,
+     "Файл docker-compose.override.yml",
+     "Уберите инфраструктурные файлы из веб-каталога.",
+     "exposed_compose"),
+    ("/Dockerfile", ("FROM ", "RUN ", "COPY "), LOW, "Файл Dockerfile",
+     "Файл раскрывает состав образа и внутреннюю структуру приложения.",
+     "exposed_compose"),
+
+    # --- известные RCE-пути конкретных продуктов ---------------------------------
+    ("/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php",
+     ("PHPUnit", "eval-stdin"), HIGH,
+     "PHPUnit eval-stdin.php в веб-каталоге (CVE-2017-9841)",
+     "Удалите каталог vendor/ из веб-корня или запретите к нему доступ: файл выполняет "
+     "произвольный PHP-код из тела запроса без авторизации.",
+     "exposed_debug"),
+    ("/_profiler/phpinfo", ("phpinfo", "PHP Version"), MEDIUM,
+     "phpinfo через профайлер Symfony",
+     "Отключите веб-профайлер Symfony в production.",
+     "exposed_debug"),
+    ("/console/", ("Symfony", "Web Debug Toolbar"), MEDIUM, "Консоль разработчика Symfony",
+     "Отключите debug-режим и веб-консоль Symfony в production.",
+     "exposed_debug"),
+    ("/actuator/heapdump", ("JAVA PROFILE", "HPROF"), HIGH,
+     "Actuator heapdump (Spring Boot)",
+     "Немедленно закройте /actuator/heapdump: дамп памяти приложения может содержать "
+     "пароли, токены и сессии пользователей в открытом виде.",
+     "exposed_actuator"),
+    ("/actuator/configprops", ("\"beans\"", "properties"), HIGH,
+     "Actuator configprops (Spring Boot)",
+     "Закройте /actuator/* аутентификацией: эндпоинт раскрывает конфигурацию приложения, "
+     "включая пароли подключений, если они не замаскированы.",
+     "exposed_actuator"),
+    ("/actuator/loggers", ("\"configuredLevel\"", "loggers"), MEDIUM,
+     "Actuator loggers (Spring Boot)",
+     "Закройте служебные эндпоинты actuator.",
+     "exposed_actuator"),
+    ("/jolokia", ("\"request\"", "mbean"), HIGH, "JMX через Jolokia",
+     "Закройте Jolokia аутентификацией или уберите из production: открытый JMX-мост "
+     "часто используют для выполнения кода на сервере.",
+     "exposed_debug"),
+    ("/solr/admin/info/system", ("\"responseHeader\"", "solr-spec-version"), MEDIUM,
+     "Административная консоль Apache Solr",
+     "Закройте админку Solr доступом по IP/VPN: через неё возможна загрузка конфигов "
+     "и выполнение кода в уязвимых версиях.",
+     "exposed_admin_panel"),
+    ("/manager/text/list", ("OK - Listed applications",), HIGH,
+     "Tomcat Manager (text interface)",
+     "Закройте Tomcat Manager аутентификацией или уберите из production: через него "
+     "разворачивают произвольные .war-приложения.",
+     "exposed_admin_panel"),
+
+    # --- прямые адреса панелей мониторинга и администрирования ------------------
+    ("/grafana/login", ("Grafana", "Welcome to Grafana"), MEDIUM,
+     "Панель Grafana",
+     "Закройте Grafana доступом по IP/VPN и отключите анонимный доступ в настройках.",
+     "exposed_admin_panel"),
+    ("/kibana/app/kibana", ("Kibana",), MEDIUM, "Панель Kibana",
+     "Закройте Kibana доступом по IP/VPN — по умолчанию она не требует авторизации.",
+     "exposed_admin_panel"),
+    ("/_cluster/health", ("\"cluster_name\"", "\"status\""), HIGH,
+     "Elasticsearch REST API без авторизации",
+     "Закройте Elasticsearch firewall'ом/VPN и включите аутентификацию (X-Pack Security "
+     "или аналог) — без неё через REST API читают и удаляют все данные кластера.",
+     "exposed_admin_panel"),
+    ("/_cat/indices?v", ("health", "status", "index"), HIGH,
+     "Список индексов Elasticsearch без авторизации",
+     "Закройте Elasticsearch аутентификацией: список индексов раскрывает структуру "
+     "хранимых данных, а REST API без защиты даёт полный доступ к ним.",
+     "exposed_admin_panel"),
+    ("/_utils/", ("CouchDB", "Fauxton"), MEDIUM, "Панель администрирования CouchDB",
+     "Закройте _utils/ аутентификацией — административная консоль CouchDB не должна "
+     "быть доступна анонимно.",
+     "exposed_admin_panel"),
+    ("/api/overview", ("rabbitmq_version", "management_version"), HIGH,
+     "RabbitMQ Management API без авторизации",
+     "Закройте плагин управления RabbitMQ аутентификацией и доступом по IP/VPN.",
+     "exposed_admin_panel"),
+    ("/v1/catalog/services", ("consul",), HIGH, "Consul API без авторизации",
+     "Включите ACL в Consul и закройте API доступом по IP/VPN: без защиты через него "
+     "читают и меняют конфигурацию всех зарегистрированных сервисов.",
+     "exposed_admin_panel"),
+    ("/version", ("etcdserver", "etcdcluster"), HIGH, "etcd API без авторизации",
+     "Включите аутентификацию etcd и закройте доступ сетевыми правилами: в etcd "
+     "обычно хранятся секреты и конфигурация кластера.",
+     "exposed_admin_panel"),
+    ("/pgadmin4/", ("pgAdmin", "PostgreSQL Tools"), MEDIUM,
+     "Панель управления базой данных (pgAdmin)",
+     "Закройте панель доступом по IP/VPN: она даёт прямой доступ к базе данных.",
+     "exposed_db_admin"),
+    ("/phpliteadmin.php", ("phpLiteAdmin", "SQLite"), MEDIUM,
+     "Панель управления базой данных (phpLiteAdmin)",
+     "Удалите файл или закройте доступ: панель даёт полный доступ к файлам SQLite.",
+     "exposed_db_admin"),
+    ("/mongo-express/", ("Mongo Express", "mongodb"), MEDIUM,
+     "Панель управления базой данных (Mongo Express)",
+     "Закройте панель аутентификацией и доступом по IP/VPN: она даёт полный доступ к MongoDB.",
+     "exposed_db_admin"),
+
+    # --- ещё отладочные/тестовые разделы и файлы ---------------------------------
+    ("/wp-json/wp/v2/users", ("\"id\"", "\"slug\"", "\"name\""), LOW,
+     "Перечисление пользователей WordPress через REST API",
+     "Ограничьте доступ к /wp-json/wp/v2/users или скройте поле slug/name для "
+     "неавторизованных запросов: по нему подбирают логины для брутфорса.",
+     "exposed_api_docs"),
+    ("/xmlrpc.php", ("methodCall", "XML-RPC server accepts POST"), LOW,
+     "Включённый XML-RPC в WordPress",
+     "Отключите xmlrpc.php, если не используете Jetpack/мобильное приложение: его "
+     "используют для подбора пароля и DDoS-усиления (pingback).",
+     "exposed_debug"),
+    ("/CHANGELOG.txt", ("Drupal", "fixed in"), LOW, "CHANGELOG.txt Drupal",
+     "Файл раскрывает точную версию Drupal, по которой подбирают известные CVE. "
+     "Ограничьте к нему доступ.",
+     "exposed_generic"),
+    ("/core/CHANGELOG.txt", ("Drupal", "fixed in"), LOW, "CHANGELOG.txt Drupal (core)",
+     "Файл раскрывает точную версию Drupal. Ограничьте к нему доступ.",
+     "exposed_generic"),
+    ("/npm-debug.log", ("npm ERR!",), MEDIUM, "Журнал ошибок npm-debug.log",
+     "Удалите журналы сборки из веб-каталога: в них попадают пути и иногда токены.",
+     "exposed_logs"),
+    ("/yarn-error.log", ("Arguments:", "PATH:"), MEDIUM, "Журнал ошибок yarn-error.log",
+     "Удалите журналы сборки из веб-каталога.",
+     "exposed_logs"),
+    ("/storage/debugbar/", ("Laravel Debugbar",), MEDIUM, "Laravel Debugbar",
+     "Отключите Debugbar в production — он раскрывает запросы к БД и параметры сессии.",
+     "exposed_debug"),
+    ("/_ignition/health-check", ("canExecuteCommands", "ignition"), HIGH,
+     "Laravel Ignition (CVE-2021-3129)",
+     "Обновите facade/ignition и отключите debug-режим: уязвимые версии позволяют "
+     "выполнить код через подмену файла логов.",
+     "exposed_debug"),
+    ("/.well-known/openid-configuration", ("issuer", "authorization_endpoint"), INFO,
+     "Конфигурация OpenID Connect",
+     "Это служебный, предназначенный для публикации файл — проверьте, что в нём нет "
+     "внутренних адресов, не видимых снаружи.",
+     "exposed_generic"),
+    ("/metrics", ("# HELP", "# TYPE"), MEDIUM, "Метрики Prometheus без авторизации",
+     "Закройте эндпоинт /metrics доступом по IP/VPN: метрики приложения часто "
+     "раскрывают внутренние адреса, версии и объём трафика по каждому маршруту.",
+     "exposed_admin_panel"),
+    ("/debug/pprof/", ("profile", "goroutine", "heap"), HIGH,
+     "Профилировщик Go net/http/pprof",
+     "Отключите /debug/pprof в production — он раскрывает состояние памяти и "
+     "трассировки горутин приложения.",
+     "exposed_debug"),
 )
+
+# Строгие проверки содержимого. Короткие маркеры («=», «PK», «dir», «test») встречаются
+# в любой HTML-странице, поэтому для таких путей подтверждение идёт по формату файла.
+_LISTING = r"Index of /|Directory listing for|<title>Index of|Parent Directory"
+_ENV_LINES = r"(?m)^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.]{2,}\s*=\s*\S"
+STRICT_PATTERNS: Dict[str, "re.Pattern[str]"] = {
+    path: re.compile(pattern, re.I if ignore_case else 0)
+    for path, pattern, ignore_case in (
+        ("/.env", _ENV_LINES, False),
+        ("/.env.backup", _ENV_LINES, False),
+        ("/.env.local", _ENV_LINES, False),
+        ("/.env.production", _ENV_LINES, False),
+        ("/.env.example", _ENV_LINES, False),
+        ("/.env.dev", _ENV_LINES, False),
+        ("/.env.old", _ENV_LINES, False),
+        ("/.env.staging", _ENV_LINES, False),
+        ("/.env.test", _ENV_LINES, False),
+        ("/.env~", _ENV_LINES, False),
+        ("/.htpasswd", r"(?m)^[^\s:<>]+:(?:\$|\{SHA\}|[A-Za-z0-9./]{13})", False),
+        ("/.svn/entries", r"(?m)^(?:dir|file)\s*$", False),
+        ("/.git/objects/info/packs", r"(?m)^P pack-", False),
+        ("/.idea/workspace.xml", r"<project[^>]*version", True),
+        ("/.vscode/sftp.json", r"\"(?:password|remotePath|privateKeyPath)\"\s*:", True),
+        ("/actuator/health", r"\"status\"\s*:\s*\"(?:UP|DOWN|OUT_OF_SERVICE)", True),
+        ("/debug", r"Traceback \(most recent|phpinfo\(\)|PHP Version|Werkzeug|Debug Toolbar|"
+                   r"Stack trace", True),
+        ("/test.php", r"phpinfo\(\)|PHP Version|<\?php", True),
+        ("/telescope", r"Laravel Telescope", True),
+        ("/horizon", r"Laravel Horizon", True),
+        ("/test/", _LISTING, True),
+        ("/testing/", _LISTING, True),
+        ("/qa/", _LISTING, True),
+        ("/demo/", _LISTING, True),
+        ("/dev/", _LISTING, True),
+        ("/staging/", _LISTING, True),
+        ("/temp/", _LISTING, True),
+        ("/tmp/", _LISTING, True),
+        ("/old/", _LISTING, True),
+        ("/backup/", _LISTING, True),
+        ("/cgi-bin/", _LISTING, True),
+        ("/.pgpass", r"(?m)^[^:\s]+:\d+:[^:\s]+:[^:\s]+:", False),
+        ("/serviceaccount/token", r"^eyJ[A-Za-z0-9_-]{8,}\.eyJ", False),
+    )
+}
+# Бинарные форматы: подтверждаются сигнатурой в начале файла (или со смещением).
+MAGIC_BYTES: Dict[str, Tuple[bytes, int]] = {
+    "/backup.zip": (b"PK\x03\x04", 0), "/site.zip": (b"PK\x03\x04", 0),
+    "/www.zip": (b"PK\x03\x04", 0), "/html.zip": (b"PK\x03\x04", 0),
+    "/wwwroot.zip": (b"PK\x03\x04", 0), "/public_html.zip": (b"PK\x03\x04", 0),
+    "/.git.zip": (b"PK\x03\x04", 0), "/vendor.zip": (b"PK\x03\x04", 0),
+    "/node_modules.zip": (b"PK\x03\x04", 0), "/site.sql.zip": (b"PK\x03\x04", 0),
+    "/backup.tar.gz": (b"\x1f\x8b", 0), "/site.tar.gz": (b"\x1f\x8b", 0),
+    "/database.sql.gz": (b"\x1f\x8b", 0), "/backup.sql.gz": (b"\x1f\x8b", 0),
+    "/dump.sql.gz": (b"\x1f\x8b", 0),
+    "/backup.rar": (b"Rar!", 0), "/backup.tar": (b"ustar", 257),
+    "/backup.7z": (b"7z\xbc\xaf\x27\x1c", 0),
+}
+MIN_MARKER_LENGTH = 4
+
+# Виды находок, где ожидается не HTML-страница, а файл: HTML-ответ — это «мягкая 404».
+NON_HTML_KINDS = frozenset({
+    "exposed_env", "exposed_git", "exposed_backup", "exposed_dbdump", "exposed_htpasswd",
+    "exposed_private_key", "exposed_cloud_credentials", "exposed_package_token",
+    "exposed_dependencies", "exposed_dsstore", "exposed_config_backup", "exposed_webconfig",
+    "exposed_generic", "exposed_svn",
+})
+HTML_SIGNS = ("<!doctype html", "<html", "<head", "<body")
+
 
 DIRECTORY_LISTING_MARKERS = ("Index of /", "<title>Directory listing for", "Parent Directory")
 
@@ -349,67 +669,116 @@ def check_exposed_paths(client: HttpClient, base_url: str, reserve: int = 0,
     findings: List[Finding] = []
     baseline = _baseline(client, base_url, reserve)
 
-    checked = 0
-    for path, markers, severity, name, recommendation, kind in SENSITIVE_PATHS:
-        if limit is not None and checked >= limit:
-            break
+    entries = list(SENSITIVE_PATHS)
+    if limit is not None:
+        entries = entries[:limit]
+    position = 0
+    while position < len(entries):
         if not client.can_request(reserve):
             break
-        url = urljoin(base_url, path)
-        response = client.get(url, allow_redirects=False, max_body_bytes=PEEK_BYTES,
-                              reserve=reserve)
-        checked += 1
-        if response is None:
-            continue
+        # Пачка запросов уходит параллельно, а разбор идёт по порядку списка путей —
+        # набор и порядок находок не зависят от скорости ответов.
+        chunk = entries[position:position + max(1, client.concurrency * 2)]
+        position += len(chunk)
+        urls = [urljoin(base_url, entry[0]) for entry in chunk]
+        request_kwargs = dict(allow_redirects=False, max_body_bytes=PEEK_BYTES, reserve=reserve)
+        responses = client.request_many([("GET", url, request_kwargs) for url in urls])
+        for entry, url, response in zip(chunk, urls, responses):
+            if response is not None and response.status_code == 429:
+                # Сайт ограничил частоту: ответ 429 — не результат проверки, повторяем один раз.
+                response = client.get(url, **request_kwargs)
+            findings.extend(_analyze_exposed(entry, url, response, baseline))
+    return findings
 
-        status = response.status_code
-        peek = _peek(response)
-        request_text = f"GET {url}"
 
-        if status in (401, 403):
-            findings.append(
-                Finding(
-                    url=url,
-                    title=f"Служебный ресурс существует, но закрыт: {name}",
-                    category=CONFIG,
-                    severity=LOW,
-                    recommendation="Доступ ограничен. По возможности отдавайте 404, чтобы не "
-                                   "раскрывать наличие файла.",
-                    request=request_text,
-                    evidence=f"HTTP/{status}",
-                    confidence=CONFIRMED,
-                    kind="exposed_protected",
-                )
-            )
-            continue
+def _analyze_exposed(entry, url: str, response, baseline) -> List[Finding]:
+    path, markers, severity, name, recommendation, kind = entry
+    findings: List[Finding] = []
+    if response is None:
+        return findings
 
-        if status != 200:
-            continue
+    status = response.status_code
+    peek = _peek(response)
+    request_text = f"GET {url}"
 
-        if baseline is not None and _looks_like_soft_404(peek, baseline):
-            continue  # сервер отдаёт 200 на любой путь — это не находка
-
-        confirmed = any(marker.lower() in peek.lower() for marker in markers)
+    if status in (401, 403):
+        if baseline is not None and baseline.get("status") == status:
+            return findings  # закрыто всё подряд (WAF, глобальная авторизация) — это не находка
         findings.append(
             Finding(
                 url=url,
-                title=f"Доступен служебный ресурс: {name}",
+                title=f"Служебный ресурс существует, но закрыт: {name}",
                 category=CONFIG,
-                severity=severity if confirmed else _downgrade(severity),
-                recommendation=recommendation,
+                severity=LOW,
+                recommendation="Доступ ограничен. По возможности отдавайте 404, чтобы не "
+                               "раскрывать наличие файла.",
                 request=request_text,
-                evidence=truncate(
-                    f"HTTP/{status}\n"
-                    f"Content-Type: {response.headers.get('Content-Type', '-')}\n"
-                    f"Content-Length: {response.headers.get('Content-Length', '-')}\n"
-                    f"Первые байты ответа:\n{peek}",
-                    700,
-                ),
-                confidence=CONFIRMED if confirmed else SUSPECTED,
-                kind=kind,
+                evidence=f"HTTP/{status}",
+                confidence=CONFIRMED,
+                kind="exposed_protected",
             )
         )
+        return findings
+
+    if status != 200:
+        return findings
+
+    if baseline is not None and _looks_like_soft_404(peek, baseline):
+        return findings  # сервер отдаёт 200 на любой путь — это не находка
+
+    html_like = _looks_like_html(peek)
+    if html_like and kind in NON_HTML_KINDS and not path.endswith("/"):
+        return findings  # вместо файла пришла HTML-страница (SPA, кастомная 404)
+
+    confirmed = _is_confirmed(path, markers, peek, response)
+    if not confirmed and html_like:
+        return findings  # обычная страница без признаков искомого ресурса
+
+    findings.append(
+        Finding(
+            url=url,
+            title=f"Доступен служебный ресурс: {name}",
+            category=CONFIG,
+            severity=severity if confirmed else _downgrade(severity),
+            recommendation=recommendation,
+            request=request_text,
+            evidence=truncate(
+                f"HTTP/{status}\n"
+                f"Content-Type: {response.headers.get('Content-Type', '-')}\n"
+                f"Content-Length: {response.headers.get('Content-Length', '-')}\n"
+                f"Первые байты ответа:\n{peek}",
+                700,
+            ),
+            confidence=CONFIRMED if confirmed else SUSPECTED,
+            kind=kind,
+        )
+    )
     return findings
+
+
+def _is_confirmed(path: str, markers: Tuple[str, ...], peek: str, response) -> bool:
+    """Подтверждение по формату файла, а для остальных — по достаточно длинным маркерам."""
+    magic = MAGIC_BYTES.get(path)
+    if magic is not None:
+        signature, offset = magic
+        raw = bytes(response.content or b"")[:PEEK_BYTES]
+        return raw[offset:offset + len(signature)] == signature
+    strict = STRICT_PATTERNS.get(path)
+    if strict is not None:
+        return strict.search(peek) is not None
+    lowered = peek.lower()
+    return any(marker.lower() in lowered for marker in markers
+               if len(marker) >= MIN_MARKER_LENGTH)
+
+
+def _looks_like_html(text: str) -> bool:
+    head = text[:400].lower()
+    return any(sign in head for sign in HTML_SIGNS)
+
+
+def _title(text: str) -> str:
+    match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
+    return " ".join(match.group(1).split()).lower() if match else ""
 
 
 SENSITIVE_ROBOTS_HINTS = ("admin", "backup", "config", "private", "secret", "internal",
@@ -481,7 +850,8 @@ def _baseline(client: HttpClient, base_url: str, reserve: int) -> Optional[Dict[
     response = client.get(url, allow_redirects=False, max_body_bytes=PEEK_BYTES, reserve=reserve)
     if response is None:
         return None
-    return {"status": response.status_code, "peek": _peek(response)}
+    peek = _peek(response)
+    return {"status": response.status_code, "peek": peek, "title": _title(peek)}
 
 
 def _looks_like_soft_404(peek: str, baseline: Dict[str, object]) -> bool:
@@ -492,6 +862,9 @@ def _looks_like_soft_404(peek: str, baseline: Dict[str, object]) -> bool:
         return False
     if peek == base_peek:
         return True
+    title = _title(peek)
+    if title and title == baseline.get("title"):
+        return True  # тот же <title>, что у страницы «не найдено»
     shorter = min(len(peek), len(base_peek))
     if shorter < 40:
         return False

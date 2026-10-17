@@ -16,6 +16,7 @@ from ..models import (CONFIG, CONFIRMED, HIGH, LOW, MEDIUM, SUSPECTED, VULN, Fin
 from ..utils import build_url, query_params, truncate
 
 PEEK = 800
+SEVERITY_RANK = {HIGH: 0, MEDIUM: 1, LOW: 2}
 
 # Пути, которые часто открывают админку / кабинет / API без должной проверки роли
 BAC_PATHS: Tuple[Tuple[str, Tuple[str, ...], str, str], ...] = (
@@ -38,6 +39,13 @@ BAC_PATHS: Tuple[Tuple[str, Tuple[str, ...], str, str], ...] = (
     ("/server-status", ("Apache Server Status",), MEDIUM, "Статус сервера"),
     ("/phpmyadmin/", ("phpMyAdmin", "pma_username"), HIGH, "phpMyAdmin"),
     ("/.well-known/security.txt", ("Contact:", "Expires:"), LOW, "security.txt"),
+)
+
+CONTROL_ID = "987654321"
+# Признаки персональных данных в ответе: публичный каталог с разным контентом по id — не IDOR.
+PERSONAL_DATA = re.compile(
+    r"(?i)[\w.+-]+@[\w-]+\.[\w.]{2,}|\"(?:email|phone|username|password|address)\"\s*:|"
+    r"\b(?:e-?mail|phone|телефон|адрес)\s*[:=]"
 )
 
 IDOR_PARAM_HINTS = ("id", "user_id", "userid", "uid", "account_id", "account", "profile_id",
@@ -67,18 +75,23 @@ def check_broken_access_control(
 def _probe_sensitive_paths(client: HttpClient, base_url: str,
                            reserve: int) -> List[Finding]:
     findings: List[Finding] = []
-    baseline = _soft404_peek(client, base_url, reserve)
+    baseline = _soft404_probe(client, base_url, reserve)
+    baseline_status, baseline_peek = baseline if baseline else (None, None)
 
     for path, markers, severity, title in BAC_PATHS:
         if not client.can_request(reserve):
             break
         url = urljoin(base_url, path)
-        response = client.get(url, allow_redirects=True, max_body_bytes=PEEK, reserve=reserve)
+        # Редиректы не выполняются: переадресация на форму входа означает, что раздел
+        # защищён, а baseline «не найдено» тоже получен без переходов.
+        response = client.get(url, allow_redirects=False, max_body_bytes=PEEK, reserve=reserve)
         if response is None:
             continue
         status = response.status_code
         peek = _peek(response)
         if status in (401, 403):
+            if status == baseline_status:
+                continue  # закрыто всё подряд (WAF, глобальная авторизация)
             # Само наличие закрытого админ-раздела — низкий риск (разведка)
             if any(m.lower() in peek.lower() for m in markers) or status == 403:
                 findings.append(
@@ -99,8 +112,12 @@ def _probe_sensitive_paths(client: HttpClient, base_url: str,
             continue
         if status != 200:
             continue
-        if baseline and _same_as_baseline(peek, baseline):
+        if baseline_status == 200 and baseline_peek and _same_as_baseline(peek, baseline_peek):
             continue
+        content_type = response.headers.get("Content-Type", "").lower()
+        is_json = "json" in content_type
+        if path.startswith("/api/") and not is_json:
+            continue  # SPA отдаёт HTML на любой путь /api/…: данных API здесь нет
         confirmed = any(m.lower() in peek.lower() for m in markers)
         # Страница логина — infо; контент кабинета/данных — серьёзнее
         is_login = re.search(r"(?i)type=[\"']password[\"']|<form[^>]+login|name=[\"']password",
@@ -108,10 +125,15 @@ def _probe_sensitive_paths(client: HttpClient, base_url: str,
         if is_login and not re.search(r"(?i)\"role\"\s*:|admin panel|welcome back", peek):
             sev, kind = LOW, "bac_login_exposed"
             conf = CONFIRMED
+        elif not confirmed:
+            continue  # нет ни одного признака искомого раздела — обычная страница
         else:
-            sev = severity if confirmed else MEDIUM
+            # Слова «account»/«dashboard» есть и на публичных страницах: без JSON-данных
+            # такое совпадение остаётся подозрением не выше среднего уровня.
+            sev = severity if is_json else min(
+                (severity, MEDIUM), key=lambda value: SEVERITY_RANK[value])
             kind = "bac_unauthenticated_access"
-            conf = CONFIRMED if confirmed else SUSPECTED
+            conf = CONFIRMED if is_json else SUSPECTED
         findings.append(
             Finding(
                 url=str(response.url or url),
@@ -172,12 +194,25 @@ def _probe_idor(client: HttpClient, pages: Sequence[Page], reserve: int) -> List
                 continue
             if re.search(r"(?i)login|sign in|unauthorized|access denied", peek):
                 continue
+            # Контроль: несуществующий id. Если ответ тот же, параметр не выбирает объект
+            # (страница просто меняется от запроса к запросу) — это не IDOR.
+            if not client.can_request(reserve):
+                break
+            control_url = build_url(page.url.split("?", 1)[0],
+                                    [(n, CONTROL_ID if n == name else v) for n, v in params])
+            control = client.get(control_url, allow_redirects=True, max_body_bytes=PEEK,
+                                 reserve=reserve)
+            if control is not None and control.status_code == 200 and \
+                    _same_as_baseline(_peek(control), peek):
+                continue
+            personal = PERSONAL_DATA.search(peek) is not None and \
+                PERSONAL_DATA.search(base) is None
             findings.append(
                 Finding(
                     url=probe_url,
                     title=f"Возможен IDOR: параметр «{name}» меняет содержимое без авторизации",
                     category=VULN,
-                    severity=HIGH,
+                    severity=MEDIUM if personal else LOW,
                     recommendation="Проверяйте на сервере, что текущий пользователь имеет "
                                    "право читать объект с этим id. Не опирайтесь только на "
                                    "секретность числового идентификатора.",
@@ -208,6 +243,13 @@ def _probe_forbidden_bypass(client: HttpClient, base_url: str,
     if blocked is None or blocked.status_code not in (401, 403):
         return findings
 
+    # Обычная главная страница — точка сравнения: меню с «admin» есть и без заголовка.
+    if not client.can_request(reserve):
+        return findings
+    plain = client.get(urljoin(base_url, "/"), allow_redirects=False, max_body_bytes=PEEK,
+                       reserve=reserve)
+    plain_peek = _peek(plain) if plain is not None else ""
+
     for headers in BYPASS_HEADERS:
         if not client.can_request(reserve):
             break
@@ -224,7 +266,10 @@ def _probe_forbidden_bypass(client: HttpClient, base_url: str,
             continue
         if response.status_code == 200 and blocked.status_code in (401, 403):
             peek = _peek(response)
-            if re.search(r"(?i)admin|dashboard|users|console", peek):
+            if peek == plain_peek or _same_as_baseline(peek, plain_peek):
+                continue  # заголовок ничего не изменил в ответе
+            if re.search(r"(?i)admin|dashboard|users|console", peek) and \
+                    not re.search(r"(?i)admin|dashboard|users|console", plain_peek):
                 findings.append(
                     Finding(
                         url=admin_url,
@@ -249,14 +294,16 @@ def _probe_forbidden_bypass(client: HttpClient, base_url: str,
     return findings
 
 
-def _soft404_peek(client: HttpClient, base_url: str, reserve: int) -> Optional[str]:
+def _soft404_probe(client: HttpClient, base_url: str,
+                   reserve: int) -> Optional[Tuple[int, str]]:
+    """Статус и начало ответа на заведомо несуществующий путь (без переходов по редиректам)."""
     if not client.can_request(reserve):
         return None
     url = urljoin(base_url, "/bauman-bac-404-probe-92841")
     response = client.get(url, allow_redirects=False, max_body_bytes=PEEK, reserve=reserve)
-    if response is None or response.status_code != 200:
+    if response is None:
         return None
-    return _peek(response)
+    return response.status_code, _peek(response)
 
 
 def _same_as_baseline(peek: str, baseline: str) -> bool:
